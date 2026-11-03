@@ -274,11 +274,13 @@ check_xcode_ready() {
         todo+=("  sudo xcode-select -s /Applications/Xcode.app")
         dev=/Applications/Xcode.app/Contents/Developer
     fi
+    # Until the license is accepted, xcodebuild refuses most commands: the
+    # first launch can't be checked then, -runFirstLaunch is listed anyway
+    # (it does nothing when already done).
     if ! DEVELOPER_DIR="${dev}" xcodebuild -license check >/dev/null 2>&1; then
         problem+="${problem:+ }The Xcode license hasn't been accepted."
-        todo+=("  sudo xcodebuild -license accept")
-    fi
-    if ! DEVELOPER_DIR="${dev}" xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
+        todo+=("  sudo xcodebuild -license accept" "  sudo xcodebuild -runFirstLaunch   (does nothing if already done)")
+    elif ! DEVELOPER_DIR="${dev}" xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
         if [[ -n "${previous}" && -n "${current}" && "${previous}" != "${current}" ]]; then
             problem+="${problem:+ }macOS was updated (${previous} → ${current}): Xcode has to reinstall its system components (its first launch isn't finished)."
         else
