@@ -38,15 +38,17 @@ fake_sw_vers() {
     chmod +x "${BIN}/sw_vers"
 }
 
-@test "Xcode license not accepted → only the license command" {
-    export XCODEBUILD_LICENSE_RC=1
+@test "Xcode license not accepted → license command, then -runFirstLaunch, first launch not judged" {
+    # xcodebuild refuses most commands until the license is accepted: a
+    # failing first-launch check then says nothing.
+    export XCODEBUILD_LICENSE_RC=1 XCODEBUILD_FIRSTLAUNCH_RC=1
     run "${PRAETORIAN}"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"BLOCKED: Xcode isn't ready"* ]] || false
     [[ "${output}" == *"The Xcode license hasn't been accepted."* ]] || false
-    [[ "${output}" == *"sudo xcodebuild -license accept"* ]] || false
+    [[ "${output}" == *"sudo xcodebuild -license accept"*"sudo xcodebuild -runFirstLaunch   (does nothing if already done)"* ]] || false
+    [[ "${output}" != *"first launch isn't finished"* ]] || false
     [[ "${output}" != *"xcode-select -s"* ]] || false
-    [[ "${output}" != *"-runFirstLaunch"* ]] || false
     [ ! -s "${BREW_CALLS}" ]
 }
 
