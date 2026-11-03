@@ -269,9 +269,14 @@ port_check_upgrade() {
     fi
 
     # "Error: Failed to build foo: …", "Error: Failed to configure foo, …",
-    # "Error: Processing of port foo failed" → name<TAB>phase
+    # "Error: Processing of port foo failed" → name<TAB>phase. Binary-only
+    # (-b): "Error: Failed to archivefetch foo: …" or "Archive for foo
+    # 1.2_0 not found, required when binary-only is set!" (MacPorts 2.12,
+    # package1.0/portarchivefetch.tcl and portunarchive.tcl) → nobinary.
     pairs=$(strip_ansi <<<"${step_out}" | awk '
-        $1 == "Error:" && $2 == "Failed" && $3 == "to" { n = $5; sub(/[:,.]$/, "", n); print n "\t" $4 }
+        /required when binary-only is set/ { for (i = 1; i < NF; i++) if ($i == "for") { print $(i + 1) "\tnobinary"; break }; next }
+        $1 == "Error:" && $2 == "Failed" && $3 == "to" { n = $5; sub(/[:,.]$/, "", n); ph = $4
+            if (ph == "archivefetch" || ph == "unarchive") ph = "nobinary"; print n "\t" ph }
         $1 == "Error:" && $2 == "Processing" && $3 == "of" && $4 == "port" { print $5 "\t?" }
     ' | sort -u)
     culprits=$(cut -f1 <<<"${pairs}" | sed '/^$/d' | sort -u | tr '\n' ' ')
@@ -280,7 +285,9 @@ port_check_upgrade() {
     for p in "${failed[@]}"; do
         local phase
         phase=$(awk -F'\t' -v n="${p}" '$1 == n && $2 != "?" {print $2; exit}' <<<"${pairs}")
-        if [[ -n "${phase}" ]]; then
+        if [[ "${phase}" == nobinary ]]; then
+            detail="no binary for this Mac yet (binary-only upgrade): current version kept"
+        elif [[ -n "${phase}" ]]; then
             detail="failed at the \"${phase}\" phase"
         elif [[ " ${culprits} " == *" ${p} "* ]]; then
             detail="upgrade failed"
@@ -343,9 +350,20 @@ maintenance_macports() {
         local p
         while IFS= read -r p; do ports+=("${p}"); done <<<"${todo}"
         info "${#ports[@]} port(s) to upgrade: ${ports[*]}"
+        # Binary-only (-b) unless --allow-build: MacPorts compiles neither
+        # a port nor its dependencies. A port with no binary for its new
+        # version fails and keeps its current version, active and usable
+        # (MacPorts only switches versions once the new one is installed);
+        # -p goes on with the other ports.
+        local -a opts=(-b -N -p)
+        if [[ "${ALLOW_BUILD}" == true ]]; then
+            opts=(-N -p)
+        else
+            say "    ${C_DIM}Binary-only (port -b): a port with no binary for this Mac yet keeps its current version (--allow-build compiles it).${C_RESET}"
+        fi
         before=${STEP_FAIL}
         run_step "Upgrading ${#ports[@]} MacPorts port(s)" \
-            "${SUDO_CMD[@]}" "${PORT_BIN}" -N -p upgrade "${ports[@]}"
+            "${SUDO_CMD[@]}" "${PORT_BIN}" "${opts[@]}" upgrade "${ports[@]}"
         [[ "${DRY_RUN}" == true ]] || port_check_upgrade "${before}" "${ports[@]}"
     fi
 
