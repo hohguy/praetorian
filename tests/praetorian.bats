@@ -156,7 +156,7 @@ with_macports() {
     run "${PRAETORIAN}"
     [ "${status}" -eq 0 ]
     grep -qx -- '-N selfupdate' "${PORT_CALLS}"
-    grep -qx -- '-N -p upgrade curl wget' "${PORT_CALLS}"
+    grep -qx -- '-b -N -p upgrade curl wget' "${PORT_CALLS}"
     grep -q -- "-n ${PRAETORIAN_PORT_PREFIX}/bin/port -N selfupdate" "${SUDO_CALLS}"
 }
 
@@ -171,6 +171,35 @@ with_macports() {
     [ "${output}" = $'wget\tport\tbuild\tfailed at the "build" phase' ]
 }
 
+@test "MacPorts: upgrade binary-only, a port without a binary keeps its version, the others go on" {
+    with_macports
+    export PORT_OUTDATED="wget curl" PORT_OUTDATED_AFTER="wget" PORT_UPGRADE_RC=1
+    export PORT_UPGRADE_OUTPUT=$'Error: Failed to archivefetch wget: version @1.25.0_1\nError: Archive for wget 1.25.0_1 not found, required when binary-only is set!'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"Binary-only (port -b)"* ]] || false
+    grep -qx -- '-b -N -p upgrade curl wget' "${PORT_CALLS}"
+    # curl upgraded, only wget reported and quarantined (retried in a few days).
+    [[ "${output}" == *"1 port(s) upgraded, 1 failed: wget"* ]] || false
+    [[ "${output}" == *"No binary yet"* ]] || false
+    [[ "${output}" == *"praetorian --allow-build --retry-quarantined"* ]] || false
+    run cut -f1,2,4,5 "${QUARANTINE}"
+    [ "${output}" = $'wget\tport\tbuild\tno binary for this Mac yet (binary-only upgrade): current version kept' ]
+    # Nothing uninstalled or deactivated by praetorian.
+    run grep -wE 'uninstall|deactivate' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "MacPorts: --allow-build → upgrade without -b" {
+    with_macports
+    export PORT_OUTDATED="wget"
+    run "${PRAETORIAN}" --allow-build
+    [ "${status}" -eq 0 ]
+    grep -qx -- '-N -p upgrade wget' "${PORT_CALLS}"
+    run grep -q -- '-b' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
 @test "MacPorts: quarantined port left out of the upgrade" {
     with_macports
     mkdir -p "${HOME}/praetorian"
@@ -178,7 +207,7 @@ with_macports() {
     export PORT_OUTDATED="wget curl"
     run "${PRAETORIAN}"
     [ "${status}" -eq 0 ]
-    grep -qx -- '-N -p upgrade curl' "${PORT_CALLS}"
+    grep -qx -- '-b -N -p upgrade curl' "${PORT_CALLS}"
 }
 
 @test "MacPorts without sudo: the whole part deferred, nothing changed" {
@@ -269,7 +298,7 @@ with_macports() {
     run "${PRAETORIAN}" --migrate wget
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"wget migrated to MacPorts (wget)."* ]] || false
-    grep -qx -- '-N install wget' "${PORT_CALLS}"
+    grep -qx -- '-b -N install wget' "${PORT_CALLS}"
     grep -qx 'uninstall --formula wget' "${BREW_CALLS}"
     run cut -f1,2 "${HOME}/praetorian/migrated.tsv"
     [ "${output}" = $'wget\twget' ]
@@ -375,7 +404,7 @@ with_macports() {
     run "${PRAETORIAN}" --dry-run --migrate example/tap/wget
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Migration: example/tap/wget (Homebrew) → wget (MacPorts)"* ]] || false
-    [[ "${output}" == *"sudo port -N install wget"* ]] || false
+    [[ "${output}" == *"sudo port -b -N install wget"* ]] || false
 }
 
 # --- Code in lib/: safety check before loading ----------------------------
