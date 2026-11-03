@@ -9,6 +9,32 @@ README (section "Latest release") must match, and so must the top entry
 of this file: a test checks all three. Git tags start at 1.5.0: the
 earlier versions have none.
 
+## Unreleased
+
+### Changed
+
+- Migrations install binary-only: `sudo port -b -N install` instead of
+  `-N install`. The binary check only looked at the ports named, not at
+  their dependencies, and let a port through when packages.macports.org
+  didn't answer; MacPorts could then compile from source. Now MacPorts
+  itself refuses to compile, and a failed install says so and suggests
+  `--allow-build`, the only way to get a source build.
+- A port whose license never has a binary (`terraform-1.N`) is blocked
+  unless `--allow-build`, instead of being built without asking.
+- The maintenance session upgrades MacPorts binary-only too
+  (`sudo port -b -N -p upgrade`). A port with no binary for its new
+  version keeps its current version, the other ports are upgraded, and it
+  is quarantined as "no binary for this Mac yet" (retried after 7 days;
+  `--allow-build --retry-quarantined` compiles it now). `--allow-build`
+  now applies to maintenance as well as migrations.
+
+### Added
+
+- `--limit <N>`: at most N successful migrations per run; the rest is
+  listed as skipped and the next run picks it up. Blocked formulae don't
+  count.
+- `--exclude <formula>[,…]`: formulae a migration run leaves alone.
+
 ## 1.5.0 - 2026-10-18
 
 Shaped by the day the author's Intel Mac moved from Homebrew to MacPorts
