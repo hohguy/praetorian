@@ -328,6 +328,35 @@ in_praetorian() {
     [ ! -e "${MIGRATED}" ]
 }
 
+@test "--migrate: a 404 is a 404 whatever curl's exit code (macOS curl 8.7 over HTTP/2: 56) → next archive name tried" {
+    export BREW_LIST_FILES="/usr/local/Cellar/automake/1.19/bin/automake"
+    export PORT_AVAILABLE="automake" PORT_FILES="automake=bin/automake"
+    export CURL_404_RC=56 CURL_PACKAGES="automake-1.0_0.any_any.noarch.tbz2"
+    run "${PRAETORIAN}" --dry-run --migrate automake
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Precompiled binary of automake available for this Mac"* ]] || false
+    [[ "${output}" != *"didn't answer"* ]] || false
+    [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 4 ]
+    grep -qx 'https://packages.macports.org/automake/automake-1.0_0.any_any.noarch.tbz2' "${CURL_URLS}"
+}
+
+@test "--migration-report: a 404 with curl exit 56 doesn't stop the other checks; a 503 is no answer" {
+    export BREW_LEAVES=$'aaa\nbbb'
+    export PORT_AVAILABLE="aaa bbb"
+    export CURL_404_RC=56 CURL_PACKAGES="bbb-1.0_0.darwin_24.x86_64.tbz2"
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"2 port(s) checked, 1 without one."* ]] || false
+    [[ "${output}" != *"didn't answer"* ]] || false
+
+    : >"${CURL_URLS}"
+    export CURL_HTTP_ERROR=503
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"packages.macports.org didn't answer"* ]] || false
+    [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
+}
+
 @test "--migrate: archive name carries the default variants" {
     export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
     export PORT_AVAILABLE="wget" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/wget"
