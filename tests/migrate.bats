@@ -289,6 +289,10 @@ in_praetorian() {
     [[ "${output}" == *"(darwin 24) on x86_64"* ]] || false
     [[ "${output}" == *"nodejs24 has a binary: praetorian --migrate node=nodejs24,npm11"* ]] || false
     [[ "${output}" == *"praetorian --allow-build --migrate node=nodejs26,npm11"* ]] || false
+    # Its directory exists (published for other Macs): not "none".
+    [[ "${output}" == *"check again later"* ]] || false
+    [[ "${output}" != *"publishes no binary"* ]] || false
+    grep -qx 'https://packages.macports.org/nodejs26/' "${CURL_URLS}"
     grep -qx 'https://packages.macports.org/nodejs26/nodejs26-1.0_0.darwin_24.x86_64.tbz2' "${CURL_URLS}"
     grep -qx 'https://packages.macports.org/nodejs26/nodejs26-1.0_0.any_any.noarch.tbz2' "${CURL_URLS}"
     run grep -qw install "${PORT_CALLS}"
@@ -317,15 +321,26 @@ in_praetorian() {
 @test "--migrate: binary-only install refused by MacPorts (a dependency to compile) → blocked, --allow-build suggested" {
     export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
     export PORT_AVAILABLE="wget"
-    export PORT_INSTALL_RC=1 PORT_INSTALL_OUTPUT="Error: Failed to archivefetch libidn2: binary-only mode, no archive available"
+    export PORT_INSTALL_RC=1 PORT_INSTALL_OUTPUT="Error: Archive for libidn2 2.3.8_0 not found, required when binary-only is set!"
     run "${PRAETORIAN}" --migrate wget
     [ "${status}" -eq 2 ]
     [[ "${output}" == *"BLOCKED: installing wget with MacPorts failed"* ]] || false
-    [[ "${output}" == *"Installed binary-only (port -b)"* ]] || false
+    [[ "${output}" == *"MacPorts doesn't compile in binary-only mode (port -b)"* ]] || false
     [[ "${output}" == *"praetorian --allow-build --migrate wget"* ]] || false
     run grep -q '^uninstall' "${BREW_CALLS}"
     [ "${status}" -eq 1 ]
     [ ! -e "${MIGRATED}" ]
+}
+
+@test "--migrate: install failing for another reason → no binary-only hint" {
+    export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
+    export PORT_AVAILABLE="wget"
+    export PORT_INSTALL_RC=1 PORT_INSTALL_OUTPUT="Error: Failed to checksum wget: wget-1.25.0.tar.gz does not match checksum"
+    run "${PRAETORIAN}" --migrate wget
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: installing wget with MacPorts failed"* ]] || false
+    [[ "${output}" != *"binary-only mode"* ]] || false
+    [[ "${output}" != *"--allow-build"* ]] || false
 }
 
 @test "--migrate: a 404 is a 404 whatever curl's exit code (macOS curl 8.7 over HTTP/2: 56) → next archive name tried" {
@@ -355,6 +370,26 @@ in_praetorian() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"packages.macports.org didn't answer"* ]] || false
     [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
+}
+
+@test "--migrate: no archive of the port at all (directory 404) → blocked as never published, waiting not suggested" {
+    export BREW_LIST_FILES="/usr/local/Cellar/graphviz/12/bin/dot"
+    export PORT_AVAILABLE="graphviz" PORT_FILES="graphviz=bin/dot"
+    export CURL_PACKAGES="" CURL_NO_DIR="graphviz"
+    run "${PRAETORIAN}" --migrate graphviz
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: MacPorts publishes no binary of graphviz"* ]] || false
+    [[ "${output}" == *"has no archive of graphviz, for any version or Mac."* ]] || false
+    [[ "${output}" != *"check again later"* ]] || false
+    [[ "${output}" == *"praetorian --allow-build --migrate graphviz"* ]] || false
+    grep -qx 'https://packages.macports.org/graphviz/' "${CURL_URLS}"
+    run grep -qw install "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+
+    run "${PRAETORIAN}" --allow-build --migrate graphviz
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"MacPorts publishes no binary of graphviz: compiled from source (--allow-build). Its upgrades will need --allow-build too."* ]] || false
+    grep -qx -- '-N install graphviz' "${PORT_CALLS}"
 }
 
 @test "--migrate: archive name carries the default variants" {
@@ -414,6 +449,13 @@ in_praetorian() {
     [ ! -s "${SUDO_CALLS}" ]
     run grep -q '^uninstall' "${BREW_CALLS}"
     [ "${status}" -eq 1 ]
+
+    # The -b note only when something is installed: none for ports only
+    # marked as requested.
+    PORT_ACTIVE="rust cargo" run "${PRAETORIAN}" --dry-run --migrate rust=rust,cargo
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1. sudo port -N setrequested rust"* ]] || false
+    [[ "${output}" != *"(-b: binaries only"* ]] || false
 }
 
 @test "--migrate: program outside Homebrew uses the formula → blocked before the uninstall" {
@@ -620,6 +662,7 @@ in_praetorian() {
     [[ "${output}" == *"foo (Homebrew: https://foo.dev — MacPorts: https://www.kde.org)"* ]] || false
     [[ "${output}" == *"step → step-cli,step-ca (praetorian --migrate step=step-cli,step-ca)"* ]] || false
     [[ "${output}" == *"4 port(s) checked, 1 without one."* ]] || false
+    [[ "${output}" == *"[MacPorts publishes no binary: …] → no archive for any version or Mac"* ]] || false
     run grep -wE 'install|uninstall|selfupdate|select|setrequested' "${PORT_CALLS}"
     [ "${status}" -eq 1 ]
 }
@@ -632,4 +675,17 @@ in_praetorian() {
     [[ "${output}" != *"[no binary"* ]] || false
     [[ "${output}" == *"packages.macports.org didn't answer: 1 port(s) not checked"* ]] || false
     [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
+}
+
+@test "--migration-report: a port never published is noted as such" {
+    export BREW_LEAVES=$'wget\ncurl'
+    export PORT_AVAILABLE="wget curl"
+    export BREW_HOMEPAGES="wget=https://www.gnu.org/software/wget/ curl=https://curl.se"
+    export PORT_INFO="wget=1.0_0,https://www.gnu.org/software/wget/,GPL curl=1.0_0,https://curl.se/,MIT"
+    export CURL_PACKAGES="curl-1.0_0.darwin_24.x86_64.tbz2" CURL_NO_DIR="wget"
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"- wget [MacPorts publishes no binary: wget]"* ]] || false
+    [[ "${output}" != *"[no binary for this Mac: wget]"* ]] || false
+    [[ "${output}" == *"2 port(s) checked, 1 without one."* ]] || false
 }
