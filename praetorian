@@ -553,7 +553,12 @@ main() {
             ;;
     esac
 
-    [[ "${DRY_RUN}" == true ]] || check_xcode_ready
+    # Dry-run: the same Xcode check, as a warning (a real run would stop).
+    if [[ "${DRY_RUN}" == true ]]; then
+        check_xcode_ready warn
+    else
+        check_xcode_ready
+    fi
     check_ac_power
     check_network
     check_disk_space
