@@ -7,8 +7,18 @@
 #   XCODEBUILD_FIRSTLAUNCH_RC   xcodebuild -checkFirstLaunchStatus
 #   XCODEBUILD_DOWNLOAD_RC      xcodebuild -downloadComponent <name>
 #
+# Like the real one, it asks the active developer directory: $DEVELOPER_DIR,
+# else xcode-select -p (tests/stubs/xcode-select). The Command Line Tools
+# have no xcodebuild of their own: -license and -checkFirstLaunchStatus
+# fail there ("requires Xcode").
+#
 set -u
 printf '%s\n' "$*" >>"${XCODEBUILD_CALLS:-/dev/null}"
+dev=${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}
+if [[ "${dev}" != *Xcode*.app* && ("${1:-}" == -license || "${1:-}" == -checkFirstLaunchStatus) ]]; then
+    echo "xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory '${dev}' is a command line tools instance" >&2
+    exit 1
+fi
 case "${1:-}" in
     -license) exit "${XCODEBUILD_LICENSE_RC:-0}" ;;
     -checkFirstLaunchStatus) exit "${XCODEBUILD_FIRSTLAUNCH_RC:-0}" ;;
