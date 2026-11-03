@@ -15,6 +15,8 @@
 # 000); a 404 exits 0 without -f, and with -f exits $CURL_404_RC
 # (default 22; macOS's curl 8.7 over HTTP/2 exits 56 instead).
 # $CURL_HTTP_ERROR (e.g. 503): every archive answers that code instead.
+# A port's directory (…/<port>/) exists, unless the port is listed in
+# $CURL_NO_DIR (space-separated): then a 404.
 #
 set -u
 url=${!#}
@@ -39,6 +41,11 @@ if [[ "${url}" == https://packages.macports.org/* ]]; then
     [[ -z "${CURL_HTTP_ERROR:-}" ]] || answer "${CURL_HTTP_ERROR}" 22
     [[ -n "${CURL_PACKAGES+set}" ]] || answer 200 0
     [[ "${CURL_PACKAGES}" != offline ]] || answer 000 28
+    if [[ "${url}" == */ ]]; then
+        dir=${url%/}
+        [[ " ${CURL_NO_DIR:-} " != *" ${dir##*/} "* ]] || answer 404 "${CURL_404_RC:-22}"
+        answer 200 0
+    fi
     [[ " ${CURL_PACKAGES} " != *" ${url##*/} "* ]] || answer 200 0
     answer 404 "${CURL_404_RC:-22}"
 fi
