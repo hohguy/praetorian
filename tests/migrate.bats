@@ -214,8 +214,8 @@ in_praetorian() {
     [[ "${output}" == *"Migration: step (Homebrew) → step-cli + step-ca (MacPorts)"* ]] || false
     [[ "${output}" == *"from step-cli: step "* ]] || false
     [[ "${output}" == *"from step-ca: step-ca "* ]] || false
-    grep -qx -- '-N install step-cli' "${PORT_CALLS}"
-    grep -qx -- '-N install step-ca' "${PORT_CALLS}"
+    grep -qx -- '-b -N install step-cli' "${PORT_CALLS}"
+    grep -qx -- '-b -N install step-ca' "${PORT_CALLS}"
     grep -qx 'uninstall --formula step' "${BREW_CALLS}"
     run cut -f1,2 "${MIGRATED}"
     [ "${output}" = $'step\tstep-cli,step-ca' ]
@@ -231,9 +231,9 @@ in_praetorian() {
     [[ "${output}" == *"from rust: rustc "* ]] || false
     # cargo isn't in "port contents rust": from another port.
     [[ "${output}" == *"from port select links or other ports: cargo"* ]] || false
-    grep -qx -- '-N install rust' "${PORT_CALLS}"
+    grep -qx -- '-b -N install rust' "${PORT_CALLS}"
     grep -qx -- '-N setrequested cargo' "${PORT_CALLS}"
-    run grep -qx -- '-N install cargo' "${PORT_CALLS}"
+    run grep -qx -- '-b -N install cargo' "${PORT_CALLS}"
     [ "${status}" -eq 1 ]
 }
 
@@ -297,7 +297,35 @@ in_praetorian() {
     run "${PRAETORIAN}" --allow-build --migrate node=nodejs26,npm11
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"MacPorts will compile from source (--allow-build)"* ]] || false
+    # --allow-build: the only install without -b.
     grep -qx -- '-N install nodejs26' "${PORT_CALLS}"
+    run grep -q -- '-b' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "--migrate: installed binary-only (port -b) by default, also through sudo" {
+    export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
+    export PORT_AVAILABLE="wget" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/wget"
+    run "${PRAETORIAN}" --migrate wget
+    [ "${status}" -eq 0 ]
+    grep -qx -- '-b -N install wget' "${PORT_CALLS}"
+    grep -q -- 'port -b -N install wget$' "${SUDO_CALLS}"
+    run grep -qx -- '-N install wget' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "--migrate: binary-only install refused by MacPorts (a dependency to compile) → blocked, --allow-build suggested" {
+    export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
+    export PORT_AVAILABLE="wget"
+    export PORT_INSTALL_RC=1 PORT_INSTALL_OUTPUT="Error: Failed to archivefetch libidn2: binary-only mode, no archive available"
+    run "${PRAETORIAN}" --migrate wget
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: installing wget with MacPorts failed"* ]] || false
+    [[ "${output}" == *"Installed binary-only (port -b)"* ]] || false
+    [[ "${output}" == *"praetorian --allow-build --migrate wget"* ]] || false
+    run grep -q '^uninstall' "${BREW_CALLS}"
+    [ "${status}" -eq 1 ]
+    [ ! -e "${MIGRATED}" ]
 }
 
 @test "--migrate: archive name carries the default variants" {
@@ -311,24 +339,35 @@ in_praetorian() {
     [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
 }
 
-@test "--migrate: packages.macports.org unreachable or license without binary → not blocking" {
+@test "--migrate: packages.macports.org unreachable → not blocking, binary-only install; license without binary → blocked unless --allow-build" {
     export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
     export PORT_AVAILABLE="wget" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/wget"
     export CURL_PACKAGES=offline
     run "${PRAETORIAN}" --migrate wget
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *"binary not checked (packages.macports.org didn't answer)"* ]] || false
+    [[ "${output}" == *"binary not checked (packages.macports.org didn't answer): the install is binary-only (port -b)"* ]] || false
     # One request only: no waiting for every timeout.
     [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
+    # Unchecked: MacPorts' -b is what keeps it from compiling.
+    grep -qx -- '-b -N install wget' "${PORT_CALLS}"
 
     : >"${CURL_URLS}"
     export BREW_LIST_FILES="/usr/local/Cellar/terraform/1.13.0/bin/terraform"
     export PORT_AVAILABLE="terraform-1.16" PORT_INFO="terraform-1.16=1.16.6_0,,Commercial"
     export PORT_FILES="terraform-1.16=bin/terraform" CURL_PACKAGES=""
+    : >"${PORT_CALLS}"
     run "${PRAETORIAN}" --migrate hashicorp/tap/terraform=terraform-1.16
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: MacPorts never ships a binary of terraform-1.16 (license)"* ]] || false
+    [[ "${output}" == *"praetorian --allow-build --migrate hashicorp/tap/terraform=terraform-1.16"* ]] || false
+    [ ! -s "${CURL_URLS}" ]
+    run grep -qw install "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+
+    run "${PRAETORIAN}" --allow-build --migrate hashicorp/tap/terraform=terraform-1.16
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"its license doesn't let MacPorts distribute one"* ]] || false
-    [ ! -s "${CURL_URLS}" ]
+    grep -qx -- '-N install terraform-1.16' "${PORT_CALLS}"
 }
 
 # --- Dry-run and programs outside Homebrew ------------------------------------------
@@ -338,7 +377,8 @@ in_praetorian() {
     export PORT_AVAILABLE="rust cargo" PORT_ACTIVE="cargo"
     run "${PRAETORIAN}" --dry-run --migrate rust=rust,cargo
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *"1. sudo port -N install rust"* ]] || false
+    [[ "${output}" == *"1. sudo port -b -N install rust"* ]] || false
+    [[ "${output}" == *"(-b: binaries only, for the port and its dependencies"* ]] || false
     [[ "${output}" == *"2. sudo port -N setrequested cargo   (already installed"* ]] || false
     run grep -qwE 'install|setrequested|select' "${PORT_CALLS}"
     [ "${status}" -eq 1 ]
@@ -357,7 +397,7 @@ in_praetorian() {
     [[ "${output}" == *"BLOCKED: programs outside Homebrew still use python@3.12"* ]] || false
     [[ "${output}" == *"pipx environment poetry (python3.12 from python@3.12)"* ]] || false
     [[ "${output}" == *"pipx reinstall <package> --python ${PRAETORIAN_PORT_PREFIX}/bin/python3.12"* ]] || false
-    grep -qx -- '-N install python312' "${PORT_CALLS}"
+    grep -qx -- '-b -N install python312' "${PORT_CALLS}"
     run grep -q '^uninstall' "${BREW_CALLS}"
     [ "${status}" -eq 1 ]
     [ ! -e "${MIGRATED}" ]
@@ -458,6 +498,79 @@ in_praetorian() {
     run grep -q '^uninstall' "${BREW_CALLS}"
     [ "${status}" -eq 1 ]
     [ ! -s "${SUDO_CALLS}" ]
+}
+
+@test "--migrate-all --limit: stops after N migrations, the next run picks up the rest" {
+    export BREW_LEAVES=$'aaa\nbbb\nccc'
+    export BREW_LIST_FILES=$'/usr/local/Cellar/aaa/1/bin/aaa\n/usr/local/Cellar/bbb/1/bin/bbb\n/usr/local/Cellar/ccc/1/bin/ccc'
+    export PORT_AVAILABLE="aaa bbb ccc"
+    export PORT_FILES="aaa=bin/aaa,bin/bbb,bin/ccc bbb=bin/aaa,bin/bbb,bin/ccc ccc=bin/aaa,bin/bbb,bin/ccc"
+    export BREW_HOMEPAGES="aaa=https://a.org bbb=https://b.org ccc=https://c.org"
+    export PORT_INFO="aaa=1.0_0,https://a.org,MIT bbb=1.0_0,https://b.org,MIT ccc=1.0_0,https://c.org,MIT"
+    run "${PRAETORIAN}" --limit 2 --migrate-all
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"--limit 2: stops after 2 migration(s)"* ]] || false
+    [[ "${output}" == *"aaa: migrated"* ]] || false
+    [[ "${output}" == *"bbb: migrated"* ]] || false
+    [[ "${output}" == *"ccc: skipped: --limit 2 reached (next run)"* ]] || false
+    [[ "${output}" == *"2 migrated, 0 blocked, 1 skipped."* ]] || false
+    [ "$(grep -c '^uninstall' "${BREW_CALLS}")" -eq 2 ]
+    run grep -qw 'install ccc' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "--limit: blocked formulae don't count" {
+    export BREW_LEAVES=$'aaa\nbbb\nccc'
+    export BREW_LIST_FILES=$'/usr/local/Cellar/aaa/1/bin/aaa\n/usr/local/Cellar/bbb/1/bin/bbb\n/usr/local/Cellar/ccc/1/bin/ccc'
+    export PORT_AVAILABLE="aaa bbb ccc"
+    export PORT_FILES="aaa=bin/aaa,bin/bbb,bin/ccc bbb=bin/aaa,bin/bbb,bin/ccc ccc=bin/aaa,bin/bbb,bin/ccc"
+    export BREW_HOMEPAGES="aaa=https://a.org bbb=https://b.org ccc=https://c.org"
+    export PORT_INFO="aaa=1.0_0,https://a.org,MIT bbb=1.0_0,https://b.org,MIT ccc=1.0_0,https://c.org,MIT"
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    : >"${HOME}/Library/LaunchAgents/homebrew.mxcl.aaa.plist"
+    # Named one by one: --migrate-all would leave aaa out (service note).
+    run "${PRAETORIAN}" --limit 1 --migrate aaa --migrate bbb --migrate ccc
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"aaa: blocked"* ]] || false
+    [[ "${output}" == *"bbb: migrated"* ]] || false
+    [[ "${output}" == *"ccc: skipped: --limit 1 reached"* ]] || false
+}
+
+@test "--exclude: formulae left out of --migrate-all and --migrate, in the summary" {
+    export BREW_LIST_FILES=$'/usr/local/Cellar/aaa/1/bin/aaa\n/usr/local/Cellar/bbb/1/bin/bbb\n/usr/local/Cellar/ccc/1/bin/ccc'
+    export PORT_AVAILABLE="aaa bbb ccc"
+    export PORT_FILES="aaa=bin/aaa,bin/bbb,bin/ccc bbb=bin/aaa,bin/bbb,bin/ccc ccc=bin/aaa,bin/bbb,bin/ccc"
+    export BREW_LEAVES=$'aaa\nbbb\nccc'
+    export BREW_HOMEPAGES="aaa=https://a.org bbb=https://b.org ccc=https://c.org"
+    export PORT_INFO="aaa=1.0_0,https://a.org,MIT bbb=1.0_0,https://b.org,MIT ccc=1.0_0,https://c.org,MIT"
+    run "${PRAETORIAN}" --exclude aaa,ccc --migrate-all
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"aaa: skipped: excluded (--exclude)"* ]] || false
+    [[ "${output}" == *"ccc: skipped: excluded (--exclude)"* ]] || false
+    [[ "${output}" == *"bbb: migrated"* ]] || false
+    [ "$(grep -c '^uninstall' "${BREW_CALLS}")" -eq 1 ]
+    run grep -qE 'install (aaa|ccc)' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "--exclude: names checked, only with a migration" {
+    run "${PRAETORIAN}" --exclude 'git;rm' --migrate-all
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"--exclude expects formula names"* ]] || false
+    run "${PRAETORIAN}" --exclude git --doctor
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"--exclude only applies to --migrate-all or --migrate."* ]] || false
+}
+
+@test "--limit: a number, and only with a migration" {
+    run "${PRAETORIAN}" --limit 0 --migrate-all
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"--limit expects a number of migrations"* ]] || false
+    run "${PRAETORIAN}" --limit abc --migrate-all
+    [ "${status}" -eq 1 ]
+    run "${PRAETORIAN}" --limit 3 --status
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"--limit only applies to --migrate-all or --migrate."* ]] || false
 }
 
 # --- --migration-report ---------------------------------------------------------------
