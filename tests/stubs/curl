@@ -8,22 +8,39 @@
 #
 # Binary archives (https://packages.macports.org/…, the last argument):
 # every one exists, unless $CURL_PACKAGES is set: then only the archive
-# names it lists (space-separated) exist, the others are a 404 (code 22);
-# CURL_PACKAGES=offline fails them all as a timeout (code 28). The URLs
-# asked for go to $CURL_URLS, when set.
+# names it lists (space-separated) exist, the others are a 404;
+# CURL_PACKAGES=offline fails them all as a timeout (code 28, HTTP code
+# 000). The URLs asked for go to $CURL_URLS, when set.
+# Like the real curl: -w '%{http_code}' prints the HTTP code (200, 404,
+# 000); a 404 exits 0 without -f, and with -f exits $CURL_404_RC
+# (default 22; macOS's curl 8.7 over HTTP/2 exits 56 instead).
+# $CURL_HTTP_ERROR (e.g. 503): every archive answers that code instead.
 #
 set -u
 url=${!#}
-if [[ "${url}" == https://packages.macports.org/* ]]; then
-    [[ -z "${CURL_URLS:-}" ]] || printf '%s\n' "${url}" >>"${CURL_URLS}"
-    [[ -n "${CURL_PACKAGES+set}" ]] || exit 0
-    if [[ "${CURL_PACKAGES}" == offline ]]; then
+fail=false want_code=false
+for a in "$@"; do
+    [[ "${a}" == -w || "${a}" == --write-out ]] && want_code=true
+    [[ "${a}" =~ ^-[A-Za-z]*f[A-Za-z]*$ || "${a}" == --fail ]] && fail=true
+done
+answer() { # answer <http code> <exit code when -f>
+    ! ${want_code} || printf '%s' "$1"
+    if [[ "$1" == 200 ]]; then exit 0; fi
+    if [[ "$1" == 000 ]]; then
         echo "curl: (28) Connection timed out after 10001 milliseconds" >&2
         exit 28
     fi
-    [[ " ${CURL_PACKAGES} " != *" ${url##*/} "* ]] || exit 0
-    echo "curl: (22) The requested URL returned error: 404" >&2
-    exit 22
+    ${fail} || exit 0
+    echo "curl: ($2) The requested URL returned error: $1" >&2
+    exit "$2"
+}
+if [[ "${url}" == https://packages.macports.org/* ]]; then
+    [[ -z "${CURL_URLS:-}" ]] || printf '%s\n' "${url}" >>"${CURL_URLS}"
+    [[ -z "${CURL_HTTP_ERROR:-}" ]] || answer "${CURL_HTTP_ERROR}" 22
+    [[ -n "${CURL_PACKAGES+set}" ]] || answer 200 0
+    [[ "${CURL_PACKAGES}" != offline ]] || answer 000 28
+    [[ " ${CURL_PACKAGES} " != *" ${url##*/} "* ]] || answer 200 0
+    answer 404 "${CURL_404_RC:-22}"
 fi
 if [[ -n "${CURL_DOWN_FOR:-}" ]]; then
     echo x >>"${CURL_CALLS}"
