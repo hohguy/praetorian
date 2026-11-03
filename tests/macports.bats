@@ -106,7 +106,7 @@ EOF
     [[ "${output}" == *"Error: Permission denied"* ]] || false
     [[ "${output}" == *"installed twice"* ]] || false
     [[ "${output}" != *"migrated to MacPorts"* ]] || false
-    grep -qx -- '-N install wget' "${PORT_CALLS}"
+    grep -qx -- '-b -N install wget' "${PORT_CALLS}"
     [ ! -e "${HOME}/praetorian/migrated.tsv" ]
 }
 
