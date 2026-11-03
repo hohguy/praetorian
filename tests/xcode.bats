@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 #
-# Xcode readiness (check_xcode_ready): only the command for the problem
-# found, and the macOS update named when it's why the first launch has to
-# run again. Same fakes as tests/praetorian.bats (xcode-select,
+# Xcode readiness (check_xcode_ready): the command for each problem found
+# (and only those), all at once in the order to run them, a warning only
+# in dry-run, and the macOS update named when it's why the first launch
+# has to run again. Same fakes as tests/praetorian.bats (xcode-select,
 # xcodebuild), plus a local sw_vers.
 #
 # shellcheck disable=SC2030,SC2031
@@ -117,4 +118,27 @@ fake_sw_vers() {
     run "${PRAETORIAN}" --dry-run
     [ "${status}" -eq 0 ]
     [ ! -e "${VERSION_FILE}" ]
+}
+
+@test "Xcode not selected and first launch not finished → both commands at once, in order" {
+    mkdir -p "${PHOME}/logs"
+    export XCODE_SELECT_PATH=/Library/Developer/CommandLineTools XCODEBUILD_FIRSTLAUNCH_RC=69
+    run bash -c "source '${PRAETORIAN}'; has_full_xcode() { return 0; }; check_xcode_ready"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Xcode is installed but not selected"*"Xcode's first launch isn't finished."* ]] || false
+    [[ "${output}" == *"Run these once, in this order"* ]] || false
+    [[ "${output}" == *"sudo xcode-select -s /Applications/Xcode.app"*"sudo xcodebuild -runFirstLaunch"* ]] || false
+    # Checked through Xcode itself (DEVELOPER_DIR), not the Command Line
+    # Tools: the license is fine, so no license command.
+    [[ "${output}" != *"-license accept"* ]] || false
+}
+
+@test "dry-run: Xcode not ready → warned with the commands, the dry-run goes on" {
+    export XCODEBUILD_LICENSE_RC=1 XCODEBUILD_FIRSTLAUNCH_RC=1
+    run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Xcode isn't ready: a real run would stop here, before doing anything."* ]] || false
+    [[ "${output}" == *"sudo xcodebuild -license accept"*"sudo xcodebuild -runFirstLaunch"* ]] || false
+    [[ "${output}" != *"BLOCKED"* ]] || false
+    [[ "${output}" == *"Summary"* ]] || false
 }
