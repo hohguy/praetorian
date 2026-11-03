@@ -368,12 +368,15 @@ port_default_variants() {
 }
 
 # port_binary_status <port> [quick]: "yes" (an archive for this Mac
-# exists), "no" (none: MacPorts would compile it), "restricted" (license
+# exists), "no" (none: MacPorts would compile it), "none" (no archive of
+# the port at all on packages.macports.org, for any version or Mac:
+# usually its license, or a dependency's, keeps MacPorts from
+# distributing one; not checked in quick mode), "restricted" (license
 # MacPorts may not redistribute: never an archive, it's built here, often
 # by only repackaging the vendor's binary), "offline" (no answer from
 # packages.macports.org) or "unknown" (no curl, unexpected platform or
 # port data). quick: only the archive for this architecture (one request).
-# Only "no" may block: never a guess.
+# Only "no" and "none" may block: never a guess.
 port_binary_status() {
     local p=$1 quick=${2:-} meta version revision license arch major variants suffix url rc code
     if [[ ! "${p}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || ! command -v curl >/dev/null 2>&1; then
@@ -433,6 +436,19 @@ port_binary_status() {
                 ;;
         esac
     done
+    # No archive for this Mac. The port's directory tells "not for this
+    # Mac or version" (it exists) from "never published" (404:
+    # graphviz, lynx in 2026-11). Anything else: the plain "no".
+    if [[ -z "${quick}" ]]; then
+        rc=0
+        code=$(curl -sSI -L --proto =https --proto-redir =https --max-time "${BINARY_CHECK_TIMEOUT}" \
+            -o /dev/null -w '%{http_code}' "${PORT_PACKAGES_URL}/${p}/" 2>>"${LOG_FILE}") || rc=$?
+        log_detail "Binary archives directory: ${PORT_PACKAGES_URL}/${p}/ (HTTP ${code:-none}, curl rc ${rc})"
+        if [[ "${code}" == 404 ]]; then
+            echo none
+            return 0
+        fi
+    fi
     echo no
 }
 
@@ -520,17 +536,9 @@ migration_notes() {
 # The plan: --migration-report prints it, --migrate-all runs its ready part
 # ----------------------------------------------------------------------------
 # Filled by migration_classify (bash 3.2: no namerefs, hence globals).
-PLAN_LEAVES=""            # brew leaves
-declare -a PLAN_SAME=()   # same name, not a known trap, homepage not different
-declare -a PLAN_DIFFER=() # same name, but the homepages differ
-# port_install_opts: MacPorts' options for "port install". -b (binary
-# only) unless --allow-build: the check below only sees the ports named,
-# not their dependencies, and says nothing when packages.macports.org
-# doesn't answer; with -b, MacPorts itself refuses to compile anything
-# (the port or a dependency) and the install fails, ${f} still in Homebrew.
-port_install_opts() {
-    if [[ "${ALLOW_BUILD}" == true ]]; then printf '%s' "-N"; else printf '%s' "-b -N"; fi
-}
+PLAN_LEAVES=""              # brew leaves
+declare -a PLAN_SAME=()     # same name, not a known trap, homepage not different
+declare -a PLAN_DIFFER=()   # same name, but the homepages differ
 declare -a PLAN_APPROX=()   # known trap or probably another name
 declare -a PLAN_NONE=()     # nothing found
 declare -a PLAN_READY=()    # what --migrate-all migrates
@@ -542,12 +550,13 @@ PLAN_BINARY_OFFLINE=false   # packages.macports.org didn't answer
 readonly PLAN_BINARY_MAX=40 # ports checked at most by one report
 
 # plan_binary_note <port>…: sets PLAN_BNOTE to " [no binary for this Mac:
-# <ports>]" for the ports packages.macports.org has no archive of, empty
-# otherwise (a global, not printed: the counters must survive). Bounded:
+# <ports>]" for the ports packages.macports.org has no archive of for this
+# Mac, " [MacPorts publishes no binary: <ports>]" for those it has none of
+# at all, empty otherwise (a global, not printed: the counters must survive). Bounded:
 # PLAN_BINARY_MAX ports per report, none once the site stopped answering.
 PLAN_BNOTE=""
 plan_binary_note() {
-    local q status missing=""
+    local q status missing="" never=""
     PLAN_BNOTE=""
     for q in "$@"; do
         if [[ "${PLAN_BINARY_OFFLINE}" == true ]] || ((PLAN_BINARY_CHECKED >= PLAN_BINARY_MAX)); then
@@ -561,10 +570,15 @@ plan_binary_note() {
                 PLAN_BINARY_MISSING=$((PLAN_BINARY_MISSING + 1))
                 missing+="${missing:+ }${q}"
                 ;;
+            none)
+                PLAN_BINARY_MISSING=$((PLAN_BINARY_MISSING + 1))
+                never+="${never:+ }${q}"
+                ;;
             offline) PLAN_BINARY_OFFLINE=true ;;
         esac
     done
     [[ -z "${missing}" ]] || PLAN_BNOTE=" [no binary for this Mac: ${missing}]"
+    [[ -z "${never}" ]] || PLAN_BNOTE+=" [MacPorts publishes no binary: ${never}]"
     return 0
 }
 
@@ -704,9 +718,10 @@ migration_report() {
     if [[ "${PLAN_HAS_NOTES}" == true ]]; then
         say ""
         info "The [ ] notes will block the migration until they're dealt with:"
-        say "    ${C_DIM}[brew service running]      → brew services stop <formula>, then the MacPorts equivalent (sudo port load <port>)${C_RESET}"
-        say "    ${C_DIM}[referenced in ~/.zshrc…]   → replace those Homebrew paths with MacPorts ones (${PORT_PREFIX}/…)${C_RESET}"
-        say "    ${C_DIM}[no binary for this Mac: …] → praetorian installs binaries only: wait for the binary, or --allow-build (compiles, hours, may fail)${C_RESET}"
+        say "    ${C_DIM}[brew service running]            → brew services stop <formula>, then the MacPorts equivalent (sudo port load <port>)${C_RESET}"
+        say "    ${C_DIM}[referenced in ~/.zshrc…]         → replace those Homebrew paths with MacPorts ones (${PORT_PREFIX}/…)${C_RESET}"
+        say "    ${C_DIM}[no binary for this Mac: …]       → praetorian installs binaries only: wait for the binary, or --allow-build (compiles, hours, may fail)${C_RESET}"
+        say "    ${C_DIM}[MacPorts publishes no binary: …] → no archive for any version or Mac: keep it in Homebrew, or --allow-build${C_RESET}"
     fi
     if ((PLAN_BINARY_CHECKED > 0 || PLAN_BINARY_SKIPPED > 0)); then
         say ""
@@ -950,10 +965,10 @@ migrate_check_project() {
 # (already active ones need nothing). None, or a license that never has
 # one: blocked unless --allow-build, with an older version of the same
 # port that has one, when there is. Network trouble: no verdict here, the
-# binary-only install (-b, port_install_opts) is the safeguard.
+# binary-only install (port -b) is the safeguard.
 migrate_check_binary() {
     local q status="" sibling alt r
-    local -a nobin=() hints=() restricted=()
+    local -a nobin=() never=() hints=() restricted=()
     for q in "${ports[@]}"; do
         port_is_active "${q}" && continue
         # No answer once: the other ports would only wait for their timeout.
@@ -970,6 +985,7 @@ migrate_check_binary() {
                     info "${C_DIM}${q}: binary not checked (${why}): the install is binary-only (port -b), MacPorts fails rather than compiling.${C_RESET}"
                 fi
                 ;;
+            none) never+=("${q}") ;;
             *) nobin+=("${q}") ;;
         esac
     done
@@ -983,6 +999,18 @@ migrate_check_binary() {
                 "Nothing was done: no MacPorts install, no uninstall. ${f} stays in Homebrew." \
                 "Usually quick when the port only repackages the vendor's own binary (terraform-1.N):" \
                 "praetorian --allow-build --migrate ${MIGRATE_SPEC}"
+            return 0
+        fi
+    fi
+    if ((${#never[@]} > 0)); then
+        if [[ "${ALLOW_BUILD}" == true ]]; then
+            warn "MacPorts publishes no binary of ${never[*]}: compiled from source (--allow-build). Its upgrades will need --allow-build too."
+        else
+            block "MacPorts publishes no binary of ${never[*]}" \
+                "packages.macports.org has no archive of ${never[*]}, for any version or Mac." \
+                "Nothing was done: no MacPorts install, no uninstall. ${f} stays in Homebrew." \
+                "Keep ${f} in Homebrew, or compile it in MacPorts: praetorian --allow-build --migrate ${MIGRATE_SPEC}" \
+                "(its upgrades then need --allow-build too)"
             return 0
         fi
     fi
@@ -1006,21 +1034,22 @@ migrate_check_binary() {
         "Nothing was done: no MacPorts install, no uninstall. ${f} stays in Homebrew." \
         "${hints[@]+"${hints[@]}"}" \
         "Compile anyway: praetorian --allow-build --migrate ${MIGRATE_SPEC}" \
-        "Or keep ${f} in Homebrew for now: binaries often appear a few days after a new version."
+        "Or keep ${f} in Homebrew for now, and check again later."
 }
 
 migrate_dry_run_plan() {
-    local q n=1 opts
-    opts=$(port_install_opts)
+    local q n=1 opts="-b -N" installs=false
+    [[ "${ALLOW_BUILD}" != true ]] || opts="-N"
     info "Next steps (not run in dry-run):"
     for q in "${ports[@]}"; do
         if port_is_active "${q}"; then
             say "    $((n++)). sudo port -N setrequested ${q}   (already installed: marked as wanted)"
         else
             say "    $((n++)). sudo port ${opts} install ${q}"
+            installs=true
         fi
     done
-    [[ "${ALLOW_BUILD}" == true ]] ||
+    [[ "${installs}" != true || "${ALLOW_BUILD}" == true ]] ||
         say "       ${C_DIM}(-b: binaries only, for the port and its dependencies; MacPorts compiles nothing)${C_RESET}"
     say "    $((n++)). check that the port(s) are active and that every command above is in ${PORT_PREFIX}/bin or sbin"
     say "       (missing ones: sudo port select --set <group> <port>, only for a group still set to none)"
@@ -1041,8 +1070,12 @@ migrate_check_sudo() {
 # 10. MacPorts install of each port (skipped when it's already active).
 migrate_install() {
     local q before
-    local -a opts=()
-    read -r -a opts <<<"$(port_install_opts)"
+    # -b (binary only) unless --allow-build: the binary check sees only the
+    # ports named, not their dependencies, and gives no verdict when
+    # packages.macports.org doesn't answer; with -b, MacPorts refuses to
+    # compile anything and the install fails, the formula still in Homebrew.
+    local -a opts=(-b -N)
+    [[ "${ALLOW_BUILD}" != true ]] || opts=(-N)
     for q in "${ports[@]}"; do
         if port_is_active "${q}"; then
             ok "${q} already installed and active in MacPorts"
@@ -1073,10 +1106,14 @@ migrate_install() {
             block_port_platform "${STEP_OUT}"
             return 0
         fi
+        # Messages of MacPorts 2.12 in binary-only mode (same as
+        # port_check_upgrade, lib/macports.sh).
         local -a build_hint=()
-        [[ "${ALLOW_BUILD}" == true ]] ||
-            build_hint=("Installed binary-only (port -b): if ${q} or one of its dependencies has no binary for this Mac, MacPorts refused to compile it."
+        if [[ "${ALLOW_BUILD}" != true ]] &&
+            strip_ansi <<<"${STEP_OUT}" | grep -qE 'required when binary-only is set|Failed to (archivefetch|unarchive) '; then
+            build_hint=("No binary for ${q} or one of its dependencies: MacPorts doesn't compile in binary-only mode (port -b)."
                 "Compile anyway (may take hours): praetorian --allow-build --migrate ${MIGRATE_SPEC}")
+        fi
         block "installing ${q} with MacPorts failed" \
             "$(port_error_lines "${STEP_OUT}")" \
             "${f} stays installed with Homebrew and usable. MacPorts never activates a half-installed port." \
@@ -1286,7 +1323,6 @@ limit_reached() {
 
 # migrate_one <spec>: one migration, its outcome recorded. Past the
 # --limit: not attempted, listed as skipped.
-
 migrate_one() {
     local before=${#BLOCKERS[@]} outcome
     if limit_reached; then
@@ -1328,7 +1364,7 @@ migrate_batch() {
         say "    ${C_DIM}Left out: the known traps and other names, different homepages, [ ] notes — see praetorian --migration-report.${C_RESET}"
     fi
     ((MIGRATE_LIMIT == 0)) ||
-        info "--limit ${MIGRATE_LIMIT}: stops after ${MIGRATE_LIMIT} migration(s); the next run picks up the rest (migrated ones have left Homebrew)."
+        info "--limit ${MIGRATE_LIMIT}: stops after ${MIGRATE_LIMIT} migration(s); run again for the rest."
     # shellcheck disable=SC2153  # MIGRATE_SPECS is set by parse_args (praetorian)
     todo=("${MIGRATE_SPECS[@]+"${MIGRATE_SPECS[@]}"}" "${PLAN_READY[@]+"${PLAN_READY[@]}"}")
     ((${#todo[@]} > 0)) || return 0
