@@ -30,7 +30,7 @@
 #           ./praetorian --migration-report | --status | --doctor | --sbom
 #           ./praetorian [--dry-run] --prune
 #           ./praetorian [--dry-run] [--allow-build] --migrate <formula>[=<port>[,<port>…]] [--migrate …]
-#           ./praetorian [--dry-run] [--allow-build] --migrate-all
+#           ./praetorian [--dry-run] [--allow-build] [--limit <N>] [--exclude <f>,…] --migrate-all
 #           (--migrate=<spec> works too; -h = --help)
 # Author  : victor-sys-admin
 # License : GPL-3.0-or-later (see LICENSE)
@@ -111,6 +111,8 @@ MIGRATE_SPEC=""             # spec being migrated: "formula" or "formula=port[,p
 declare -a MIGRATE_SPECS=() # every --migrate given, in order
 MIGRATE_ALL=false           # --migrate-all
 ALLOW_BUILD=false           # --allow-build: migrate even without a MacPorts binary
+MIGRATE_LIMIT=0             # --limit N: at most N migrations per run (0: no limit)
+MIGRATE_EXCLUDE=""          # --exclude a,b: formulae never migrated this run (one per line)
 DRY_RUN=false
 GREEDY=true
 QUIET=false
@@ -336,8 +338,18 @@ Homebrew → MacPorts migration:
   --migrate-all Migrates every formula the report finds under the same
                 name in MacPorts, leaves first; a blocked one is skipped
                 and listed in the summary.
-  --allow-build Migrates even when MacPorts has no precompiled binary of
-                the port for this Mac (it would compile from source).
+  --allow-build Lets MacPorts compile from source: migrations even when
+                there is no precompiled binary for this Mac, and upgrades
+                in the maintenance session. Without it, every MacPorts
+                install and upgrade is binary-only (port -b): MacPorts
+                compiles neither a port nor any of its dependencies, and a
+                port without a binary keeps its current version.
+  --limit <N>   With --migrate-all (or several --migrate): stops after N
+                successful migrations; the rest is listed as skipped.
+                Run again for the next N (blocked ones don't count).
+  --exclude <formula>[,<formula>…]
+                Never migrates these formulae in this run (e.g. git,go,
+                ghc,fnm,postgresql@18); listed as skipped. Repeatable.
 
 Status and cleanup:
   --status      Read-only: what is migrated, what is left in Homebrew and
@@ -397,6 +409,42 @@ parse_args() {
             --prune) set_mode prune "$1" ;;
             --sbom) set_mode sbom "$1" ;;
             --allow-build) ALLOW_BUILD=true ;;
+            --limit | --limit=*)
+                local n
+                if [[ "$1" == --limit=* ]]; then
+                    n=${1#--limit=}
+                else
+                    n=${2:-}
+                    [[ $# -gt 1 ]] && shift
+                fi
+                if [[ ! "${n}" =~ ^[1-9][0-9]{0,3}$ ]]; then
+                    err "--limit expects a number of migrations (1 to 9999), e.g. --limit 5"
+                    finish 1
+                fi
+                MIGRATE_LIMIT=${n}
+                ;;
+            --exclude | --exclude=*)
+                local list x
+                local -a names=()
+                if [[ "$1" == --exclude=* ]]; then
+                    list=${1#--exclude=}
+                else
+                    list=${2:-}
+                    [[ $# -gt 1 ]] && shift
+                fi
+                IFS=, read -r -a names <<<"${list}"
+                if ((${#names[@]} == 0)); then
+                    err "--exclude expects formula names, comma-separated, e.g. --exclude git,go,fnm"
+                    finish 1
+                fi
+                for x in "${names[@]}"; do
+                    if [[ "${x}" == *=* ]] || ! valid_migrate_spec "${x}"; then
+                        err "--exclude expects formula names, comma-separated, e.g. --exclude git,go,fnm"
+                        finish 1
+                    fi
+                    MIGRATE_EXCLUDE+="${MIGRATE_EXCLUDE:+$'\n'}${x}"
+                done
+                ;;
             --migrate-all)
                 set_mode migrate "$1"
                 MIGRATE_ALL=true
@@ -430,6 +478,14 @@ parse_args() {
         esac
         shift
     done
+    if ((MIGRATE_LIMIT > 0)) && [[ "${MODE}" != migrate ]]; then
+        err "--limit only applies to --migrate-all or --migrate."
+        finish 1
+    fi
+    if [[ -n "${MIGRATE_EXCLUDE}" && "${MODE}" != migrate ]]; then
+        err "--exclude only applies to --migrate-all or --migrate."
+        finish 1
+    fi
 }
 
 # ----------------------------------------------------------------------------
