@@ -87,7 +87,7 @@ feed_line() {
     [[ "${output}" == *"Some apps will ask for "* ]] || false
     [[ "${output}" == *"MacPorts needs sudo"* ]] || false
     grep -qx "${PRAETORIAN_PORT_PREFIX}/bin/port -N selfupdate" "${SUDO_CALLS}"
-    grep -qx "${PRAETORIAN_PORT_PREFIX}/bin/port -N -p upgrade wget" "${SUDO_CALLS}"
+    grep -qx "${PRAETORIAN_PORT_PREFIX}/bin/port -b -N -p upgrade wget" "${SUDO_CALLS}"
     run grep -q -- '^-n ' "${SUDO_CALLS}"
     [ "${status}" -eq 1 ]
     # From a terminal, a short session doesn't notify (see below).
