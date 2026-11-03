@@ -250,10 +250,16 @@ macos_version_record() {
 
 # Xcode installed but not ready (not selected, license not accepted, first
 # launch not done): builds fail or hang waiting. Stop the session and say
-# what to run: only the command for the problem found (the next one, if
-# any, is checked at the next session).
+# what to run: every problem found, in the order to fix them, so that one
+# round of commands is enough (2026-11-03: selecting Xcode would only have
+# revealed the unfinished first launch at the next session). When Xcode
+# isn't selected, its license and first launch are checked through
+# DEVELOPER_DIR: plain xcodebuild would ask the Command Line Tools.
+# check_xcode_ready warn (dry-run): the same findings as a warning, the
+# session goes on; a dry-run otherwise said nothing, then the real run
+# stopped at once (the "start it and walk away" case).
 check_xcode_ready() {
-    local selected problem="" current previous
+    local how=${1:-} selected problem="" current previous dev
     local -a todo=()
     current=$(sw_vers -productVersion 2>/dev/null || true)
     previous=$(cat "${MACOS_VERSION_FILE}" 2>/dev/null || true)
@@ -262,18 +268,23 @@ check_xcode_ready() {
         return 0
     fi
     selected=$(xcode-select -p 2>/dev/null || true)
+    dev=${selected}
     if [[ "${selected}" != *Xcode*.app* ]]; then
         problem="Xcode is installed but not selected (xcode-select -p = ${selected:-nothing})."
-        todo=("  sudo xcode-select -s /Applications/Xcode.app")
-    elif ! xcodebuild -license check >/dev/null 2>&1; then
-        problem="The Xcode license hasn't been accepted."
-        todo=("  sudo xcodebuild -license accept")
-    elif ! xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
-        problem="Xcode's first launch isn't finished."
+        todo+=("  sudo xcode-select -s /Applications/Xcode.app")
+        dev=/Applications/Xcode.app/Contents/Developer
+    fi
+    if ! DEVELOPER_DIR="${dev}" xcodebuild -license check >/dev/null 2>&1; then
+        problem+="${problem:+ }The Xcode license hasn't been accepted."
+        todo+=("  sudo xcodebuild -license accept")
+    fi
+    if ! DEVELOPER_DIR="${dev}" xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
         if [[ -n "${previous}" && -n "${current}" && "${previous}" != "${current}" ]]; then
-            problem="macOS was updated (${previous} → ${current}): Xcode has to reinstall its system components (its first launch isn't finished)."
+            problem+="${problem:+ }macOS was updated (${previous} → ${current}): Xcode has to reinstall its system components (its first launch isn't finished)."
+        else
+            problem+="${problem:+ }Xcode's first launch isn't finished."
         fi
-        todo=("  sudo xcodebuild -runFirstLaunch")
+        todo+=("  sudo xcodebuild -runFirstLaunch")
     fi
     # Recorded only once Xcode is ready: while any problem is left (the
     # license, then the first launch), the next session still explains the
@@ -282,10 +293,19 @@ check_xcode_ready() {
     [[ -z "${problem}" ]] && return 0
 
     log_detail "XCODE not ready: ${problem}"
+    local run_this="Run this once (Touch ID / password requested), then run praetorian again:"
+    ((${#todo[@]} == 1)) || run_this="Run these once, in this order (Touch ID / password requested), then run praetorian again:"
+    if [[ "${how}" == warn ]]; then
+        warn "Xcode isn't ready: a real run would stop here, before doing anything. ${problem}"
+        say "    ${C_DIM}${run_this}${C_RESET}"
+        local line
+        for line in "${todo[@]}"; do say "    ${line}"; done
+        return 0
+    fi
     block "Xcode isn't ready" \
         "${problem} Homebrew and MacPorts would build with a half-configured Xcode: failures, or builds hanging forever (seen before: cmake at 0% CPU)." \
         "Nothing was done this session." \
-        "Run this once (Touch ID / password requested), then run praetorian again:" \
+        "${run_this}" \
         "${todo[@]}"
     finish 1
 }
