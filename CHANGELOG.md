@@ -16,9 +16,9 @@ earlier versions have none.
 - Migrations install binary-only: `sudo port -b -N install` instead of
   `-N install`. The binary check only looked at the ports named, not at
   their dependencies, and let a port through when packages.macports.org
-  didn't answer; MacPorts could then compile from source. Now MacPorts
-  itself refuses to compile, and a failed install says so and suggests
-  `--allow-build`, the only way to get a source build.
+  didn't answer; MacPorts could then compile from source. With `-b`,
+  MacPorts refuses to compile, and a failed install suggests
+  `--allow-build`.
 - A port whose license never has a binary (`terraform-1.N`) is blocked
   unless `--allow-build`, instead of being built without asking.
 - The maintenance session upgrades MacPorts binary-only too
@@ -39,6 +39,10 @@ earlier versions have none.
   run stopped at once. The dry-run now warns with the commands, and both
   name every Xcode problem at once (not selected, license, first launch)
   instead of one per session.
+- A port with no archive at all on packages.macports.org (no directory:
+  `graphviz`, `lynx`) was reported as "binaries often appear a few days
+  after a new version". The block and the report now say that there is
+  no archive for any version or Mac.
 
 ### Added
 
