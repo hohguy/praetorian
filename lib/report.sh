@@ -144,6 +144,8 @@ remediation_hints() {
     if [[ -n "${port_pkgs}" ]]; then
         say "    ${C_DIM}-${C_RESET} ${port_pkgs} (MacPorts): ${C_DIM}port log <name>${C_RESET} or the *_portlogs.tar.gz archive;"
         say "      ${C_DIM}sudo port clean <name>${C_RESET} then try again. The old version stays active and usable."
+        grep -q 'binary-only upgrade' "${QUARANTINE_FILE}" 2>/dev/null &&
+            say "      No binary yet: binaries often follow within days (automatic retry in ${QUARANTINE_BUILD_DAYS} d); to compile now: ${C_DIM}praetorian --allow-build --retry-quarantined${C_RESET}"
         say "      Persistent bug: MacPorts still supports this Mac, report it at https://trac.macports.org"
     fi
     say "    ${C_DIM}-${C_RESET} then ${C_DIM}praetorian --retry-quarantined${C_RESET} (or empty ${QUARANTINE_FILE})."
