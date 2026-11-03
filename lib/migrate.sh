@@ -375,7 +375,7 @@ port_default_variants() {
 # port data). quick: only the archive for this architecture (one request).
 # Only "no" may block: never a guess.
 port_binary_status() {
-    local p=$1 quick=${2:-} meta version revision license arch major variants suffix url rc
+    local p=$1 quick=${2:-} meta version revision license arch major variants suffix url rc code
     if [[ ! "${p}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || ! command -v curl >/dev/null 2>&1; then
         echo unknown
         return 0
@@ -412,16 +412,22 @@ port_binary_status() {
     [[ -n "${quick}" ]] || suffixes+=("darwin_${major}.noarch" "darwin_any.noarch" "any_any.noarch")
     for suffix in "${suffixes[@]}"; do
         url="${PORT_PACKAGES_URL}/${p}/${p}-${version}_${revision}${variants}.${suffix}.tbz2"
+        # The HTTP code, not curl's exit code: with -f, macOS's own curl
+        # (8.7.1) exits 56 instead of 22 for a 404 over HTTP/2, and every
+        # missing archive name read as "no answer" (2026-11-03: the
+        # noarch archives of automake, asciidoc… never looked for, and
+        # the report stopped checking after the first one).
         rc=0
-        curl -fsSI --proto =https --max-time "${BINARY_CHECK_TIMEOUT}" -o /dev/null "${url}" 2>>"${LOG_FILE}" || rc=$?
-        log_detail "Binary archive: ${url} (curl rc ${rc})"
-        case "${rc}" in
-            0)
+        code=$(curl -sSI -L --proto =https --proto-redir =https --max-time "${BINARY_CHECK_TIMEOUT}" \
+            -o /dev/null -w '%{http_code}' "${url}" 2>>"${LOG_FILE}") || rc=$?
+        log_detail "Binary archive: ${url} (HTTP ${code:-none}, curl rc ${rc})"
+        case "${code}" in
+            200)
                 echo yes
                 return 0
                 ;;
-            22) ;; # HTTP error (404): not there, next name
-            *)
+            403 | 404 | 410) ;; # not there: next name
+            *)                  # 000 (no connection, timeout), 5xx…: no verdict
                 echo offline
                 return 0
                 ;;
