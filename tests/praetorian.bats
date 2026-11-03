@@ -174,20 +174,30 @@ with_macports() {
 @test "MacPorts: upgrade binary-only, a port without a binary keeps its version, the others go on" {
     with_macports
     export PORT_OUTDATED="wget curl" PORT_OUTDATED_AFTER="wget" PORT_UPGRADE_RC=1
-    export PORT_UPGRADE_OUTPUT=$'Error: Failed to archivefetch wget: version @1.25.0_1\nError: Archive for wget 1.25.0_1 not found, required when binary-only is set!'
+    export PORT_UPGRADE_OUTPUT='Error: Archive for wget 1.25.0_1 not found, required when binary-only is set!'
     run "${PRAETORIAN}"
     [ "${status}" -eq 2 ]
     [[ "${output}" == *"Binary-only (port -b)"* ]] || false
     grep -qx -- '-b -N -p upgrade curl wget' "${PORT_CALLS}"
-    # curl upgraded, only wget reported and quarantined (retried in a few days).
+    # curl upgraded, only wget reported and quarantined (retried later).
     [[ "${output}" == *"1 port(s) upgraded, 1 failed: wget"* ]] || false
-    [[ "${output}" == *"No binary yet"* ]] || false
+    [[ "${output}" == *"No binary for this Mac: automatic retry in"* ]] || false
     [[ "${output}" == *"praetorian --allow-build --retry-quarantined"* ]] || false
     run cut -f1,2,4,5 "${QUARANTINE}"
-    [ "${output}" = $'wget\tport\tbuild\tno binary for this Mac yet (binary-only upgrade): current version kept' ]
+    [ "${output}" = $'wget\tport\tbuild\tno binary for this Mac (binary-only upgrade): current version kept' ]
     # Nothing uninstalled or deactivated by praetorian.
     run grep -wE 'uninstall|deactivate' "${PORT_CALLS}"
     [ "${status}" -eq 1 ]
+}
+
+@test "MacPorts: upgrade failing at archivefetch (binary-only) → same no-binary reason" {
+    with_macports
+    export PORT_OUTDATED="wget" PORT_OUTDATED_AFTER="wget" PORT_UPGRADE_RC=1
+    export PORT_UPGRADE_OUTPUT='Error: Failed to archivefetch wget: version @1.25.0_1'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    run cut -f5 "${QUARANTINE}"
+    [ "${output}" = "no binary for this Mac (binary-only upgrade): current version kept" ]
 }
 
 @test "MacPorts: --allow-build → upgrade without -b" {
