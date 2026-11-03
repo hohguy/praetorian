@@ -110,9 +110,9 @@ MODE=maintain               # maintain | report | migrate | status | doctor | pr
 MIGRATE_SPEC=""             # spec being migrated: "formula" or "formula=port[,port…]"
 declare -a MIGRATE_SPECS=() # every --migrate given, in order
 MIGRATE_ALL=false           # --migrate-all
-ALLOW_BUILD=false           # --allow-build: migrate even without a MacPorts binary
+ALLOW_BUILD=false           # --allow-build: MacPorts may compile (migrations and upgrades)
 MIGRATE_LIMIT=0             # --limit N: at most N migrations per run (0: no limit)
-MIGRATE_EXCLUDE=""          # --exclude a,b: formulae never migrated this run (one per line)
+MIGRATE_EXCLUDE=""          # --exclude a,b: formulae skipped this run (one per line)
 DRY_RUN=false
 GREEDY=true
 QUIET=false
@@ -338,18 +338,16 @@ Homebrew → MacPorts migration:
   --migrate-all Migrates every formula the report finds under the same
                 name in MacPorts, leaves first; a blocked one is skipped
                 and listed in the summary.
-  --allow-build Lets MacPorts compile from source: migrations even when
-                there is no precompiled binary for this Mac, and upgrades
-                in the maintenance session. Without it, every MacPorts
-                install and upgrade is binary-only (port -b): MacPorts
-                compiles neither a port nor any of its dependencies, and a
-                port without a binary keeps its current version.
+  --allow-build Lets MacPorts compile from source, for migrations and for
+                upgrades in the maintenance session. Without it, MacPorts
+                installs and upgrades binary-only (port -b), and a port
+                without a binary keeps its current version.
   --limit <N>   With --migrate-all (or several --migrate): stops after N
                 successful migrations; the rest is listed as skipped.
                 Run again for the next N (blocked ones don't count).
   --exclude <formula>[,<formula>…]
-                Never migrates these formulae in this run (e.g. git,go,
-                ghc,fnm,postgresql@18); listed as skipped. Repeatable.
+                Skips these formulae in this run (e.g. git,go); listed as
+                skipped. Repeatable.
 
 Status and cleanup:
   --status      Read-only: what is migrated, what is left in Homebrew and
