@@ -514,9 +514,17 @@ migration_notes() {
 # The plan: --migration-report prints it, --migrate-all runs its ready part
 # ----------------------------------------------------------------------------
 # Filled by migration_classify (bash 3.2: no namerefs, hence globals).
-PLAN_LEAVES=""              # brew leaves
-declare -a PLAN_SAME=()     # same name, not a known trap, homepage not different
-declare -a PLAN_DIFFER=()   # same name, but the homepages differ
+PLAN_LEAVES=""            # brew leaves
+declare -a PLAN_SAME=()   # same name, not a known trap, homepage not different
+declare -a PLAN_DIFFER=() # same name, but the homepages differ
+# port_install_opts: MacPorts' options for "port install". -b (binary
+# only) unless --allow-build: the check below only sees the ports named,
+# not their dependencies, and says nothing when packages.macports.org
+# doesn't answer; with -b, MacPorts itself refuses to compile anything
+# (the port or a dependency) and the install fails, ${f} still in Homebrew.
+port_install_opts() {
+    if [[ "${ALLOW_BUILD}" == true ]]; then printf '%s' "-N"; else printf '%s' "-b -N"; fi
+}
 declare -a PLAN_APPROX=()   # known trap or probably another name
 declare -a PLAN_NONE=()     # nothing found
 declare -a PLAN_READY=()    # what --migrate-all migrates
@@ -692,7 +700,7 @@ migration_report() {
         info "The [ ] notes will block the migration until they're dealt with:"
         say "    ${C_DIM}[brew service running]      → brew services stop <formula>, then the MacPorts equivalent (sudo port load <port>)${C_RESET}"
         say "    ${C_DIM}[referenced in ~/.zshrc…]   → replace those Homebrew paths with MacPorts ones (${PORT_PREFIX}/…)${C_RESET}"
-        say "    ${C_DIM}[no binary for this Mac: …] → MacPorts would compile it (hours, may fail): wait for the binary, or --allow-build${C_RESET}"
+        say "    ${C_DIM}[no binary for this Mac: …] → praetorian installs binaries only: wait for the binary, or --allow-build (compiles, hours, may fail)${C_RESET}"
     fi
     if ((PLAN_BINARY_CHECKED > 0 || PLAN_BINARY_SKIPPED > 0)); then
         say ""
@@ -933,27 +941,45 @@ migrate_check_project() {
 }
 
 # 9. A precompiled binary for this Mac, for every port to install
-# (already active ones need nothing). None: blocked unless --allow-build,
-# with an older version of the same port that has one, when there is.
-# Network trouble: no verdict, never a block.
+# (already active ones need nothing). None, or a license that never has
+# one: blocked unless --allow-build, with an older version of the same
+# port that has one, when there is. Network trouble: no verdict here, the
+# binary-only install (-b, port_install_opts) is the safeguard.
 migrate_check_binary() {
     local q status="" sibling alt r
-    local -a nobin=() hints=()
+    local -a nobin=() hints=() restricted=()
     for q in "${ports[@]}"; do
         port_is_active "${q}" && continue
         # No answer once: the other ports would only wait for their timeout.
         [[ "${status}" == offline ]] || status=$(port_binary_status "${q}")
         case "${status}" in
             yes) ok "Precompiled binary of ${q} available for this Mac (packages.macports.org)" ;;
-            restricted)
-                info "${q}: no precompiled binary (its license doesn't let MacPorts distribute one): built on this Mac."
-                say "    ${C_DIM}Usually quick when the port only repackages the vendor's own binary (terraform-1.N).${C_RESET}"
+            restricted) restricted+=("${q}") ;;
+            offline | unknown)
+                local why="packages.macports.org didn't answer"
+                [[ "${status}" == offline ]] || why="no curl, or unexpected platform or port data"
+                if [[ "${ALLOW_BUILD}" == true ]]; then
+                    info "${C_DIM}${q}: binary not checked (${why}): not blocking (--allow-build).${C_RESET}"
+                else
+                    info "${C_DIM}${q}: binary not checked (${why}): the install is binary-only (port -b), MacPorts fails rather than compiling.${C_RESET}"
+                fi
                 ;;
-            offline) info "${C_DIM}${q}: binary not checked (packages.macports.org didn't answer): not blocking.${C_RESET}" ;;
-            unknown) info "${C_DIM}${q}: binary not checked (no curl, or unexpected platform or port data): not blocking.${C_RESET}" ;;
             *) nobin+=("${q}") ;;
         esac
     done
+    if ((${#restricted[@]} > 0)); then
+        if [[ "${ALLOW_BUILD}" == true ]]; then
+            info "${restricted[*]}: no precompiled binary (its license doesn't let MacPorts distribute one): built on this Mac (--allow-build)."
+            say "    ${C_DIM}Usually quick when the port only repackages the vendor's own binary (terraform-1.N).${C_RESET}"
+        else
+            block "MacPorts never ships a binary of ${restricted[*]} (license)" \
+                "Its license doesn't let MacPorts distribute a precompiled archive: the port is always built on this Mac, and praetorian installs binary-only (port -b) unless you allow a build." \
+                "Nothing was done: no MacPorts install, no uninstall. ${f} stays in Homebrew." \
+                "Usually quick when the port only repackages the vendor's own binary (terraform-1.N):" \
+                "praetorian --allow-build --migrate ${MIGRATE_SPEC}"
+            return 0
+        fi
+    fi
     ((${#nobin[@]} > 0)) || return 0
     if [[ "${ALLOW_BUILD}" == true ]]; then
         warn "No precompiled binary for this Mac: ${nobin[*]}. MacPorts will compile from source (--allow-build): this may take hours."
@@ -978,15 +1004,18 @@ migrate_check_binary() {
 }
 
 migrate_dry_run_plan() {
-    local q n=1
+    local q n=1 opts
+    opts=$(port_install_opts)
     info "Next steps (not run in dry-run):"
     for q in "${ports[@]}"; do
         if port_is_active "${q}"; then
             say "    $((n++)). sudo port -N setrequested ${q}   (already installed: marked as wanted)"
         else
-            say "    $((n++)). sudo port -N install ${q}"
+            say "    $((n++)). sudo port ${opts} install ${q}"
         fi
     done
+    [[ "${ALLOW_BUILD}" == true ]] ||
+        say "       ${C_DIM}(-b: binaries only, for the port and its dependencies; MacPorts compiles nothing)${C_RESET}"
     say "    $((n++)). check that the port(s) are active and that every command above is in ${PORT_PREFIX}/bin or sbin"
     say "       (missing ones: sudo port select --set <group> <port>, only for a group still set to none)"
     say "    $((n++)). brew uninstall --formula ${f}   (only if the checks pass)"
@@ -1006,6 +1035,8 @@ migrate_check_sudo() {
 # 10. MacPorts install of each port (skipped when it's already active).
 migrate_install() {
     local q before
+    local -a opts=()
+    read -r -a opts <<<"$(port_install_opts)"
     for q in "${ports[@]}"; do
         if port_is_active "${q}"; then
             ok "${q} already installed and active in MacPorts"
@@ -1022,7 +1053,7 @@ migrate_install() {
         fi
         before=${STEP_FAIL}
         run_step "Installing ${q} with MacPorts" \
-            "${SUDO_CMD[@]}" "${PORT_BIN}" -N install "${q}"
+            "${SUDO_CMD[@]}" "${PORT_BIN}" "${opts[@]}" install "${q}"
         step_failed_since "${before}" || continue
         save_port_logs "${STEP_OUT}"
         if is_sudo_auth_failure "${STEP_OUT}"; then
@@ -1036,9 +1067,14 @@ migrate_install() {
             block_port_platform "${STEP_OUT}"
             return 0
         fi
+        local -a build_hint=()
+        [[ "${ALLOW_BUILD}" == true ]] ||
+            build_hint=("Installed binary-only (port -b): if ${q} or one of its dependencies has no binary for this Mac, MacPorts refused to compile it."
+                "Compile anyway (may take hours): praetorian --allow-build --migrate ${MIGRATE_SPEC}")
         block "installing ${q} with MacPorts failed" \
             "$(port_error_lines "${STEP_OUT}")" \
             "${f} stays installed with Homebrew and usable. MacPorts never activates a half-installed port." \
+            "${build_hint[@]+"${build_hint[@]}"}" \
             "Details: port log ${q}  (or the *_portlogs.tar.gz archive in ${LOG_DIR})" \
             "Clean up and retry: sudo port clean ${q} && praetorian --migrate ${MIGRATE_SPEC}" \
             "This Mac is still supported by MacPorts: bugs can be reported at https://trac.macports.org"
@@ -1233,9 +1269,25 @@ migrate_waits() {
     [[ -n "$(filter_out "${dependents}" "${MIGRATE_DONE}")" ]]
 }
 
-# migrate_one <spec>: one migration, its outcome recorded.
+# limit_reached: --limit N given and N formulae already migrated (or
+# checked, dry-run) this session. Only successes count: a blocked formula
+# stays in brew leaves and is tried again by every run, it must not eat
+# the budget of the next ones.
+limit_reached() {
+    ((MIGRATE_LIMIT > 0)) || return 1
+    (($(count_lines "${MIGRATE_DONE}") >= MIGRATE_LIMIT))
+}
+
+# migrate_one <spec>: one migration, its outcome recorded. Past the
+# --limit: not attempted, listed as skipped.
+
 migrate_one() {
     local before=${#BLOCKERS[@]} outcome
+    if limit_reached; then
+        BATCH_SPECS+=("$1")
+        BATCH_OUTCOMES+=("skipped: --limit ${MIGRATE_LIMIT} reached (next run)")
+        return 0
+    fi
     MIGRATE_SPEC=$1
     migrate
     if [[ -n "${MIGRATE_RESULT}" ]]; then
@@ -1269,6 +1321,8 @@ migrate_batch() {
         fi
         say "    ${C_DIM}Left out: the known traps and other names, different homepages, [ ] notes — see praetorian --migration-report.${C_RESET}"
     fi
+    ((MIGRATE_LIMIT == 0)) ||
+        info "--limit ${MIGRATE_LIMIT}: stops after ${MIGRATE_LIMIT} migration(s); the next run picks up the rest (migrated ones have left Homebrew)."
     # shellcheck disable=SC2153  # MIGRATE_SPECS is set by parse_args (praetorian)
     todo=("${MIGRATE_SPECS[@]+"${MIGRATE_SPECS[@]}"}" "${PLAN_READY[@]+"${PLAN_READY[@]}"}")
     ((${#todo[@]} > 0)) || return 0
@@ -1281,6 +1335,12 @@ migrate_batch() {
         if ! valid_migrate_spec "${spec}"; then
             BATCH_SPECS+=("${spec}")
             BATCH_OUTCOMES+=("skipped: invalid name")
+            continue
+        fi
+        # --exclude: the full name (tap/name) or the short one.
+        if [[ -n "${MIGRATE_EXCLUDE}" ]] && grep -qxF -e "${f}" -e "${f##*/}" <<<"${MIGRATE_EXCLUDE}"; then
+            BATCH_SPECS+=("${spec}")
+            BATCH_OUTCOMES+=("skipped: excluded (--exclude)")
             continue
         fi
         if grep -qxF "${f}" <<<"${seen}"; then
@@ -1310,11 +1370,12 @@ migrate_batch() {
         # Nothing migrated: the dependents of the waiting ones are still
         # there, another pass would change nothing.
         [[ "${MIGRATE_DONE}" != "${done_before}" ]] || break
+        ! limit_reached || break
     done
     # Still waiting: one try each, for the block that explains why.
     for spec in "${pending[@]+"${pending[@]}"}"; do migrate_one "${spec}"; done
 
-    ((${#BATCH_SPECS[@]} > 1)) || [[ "${MIGRATE_ALL}" == true ]] || return 0
+    ((${#BATCH_SPECS[@]} > 1)) || [[ "${MIGRATE_ALL}" == true || -n "${MIGRATE_EXCLUDE}" ]] || return 0
     migrate_batch_summary
 }
 
