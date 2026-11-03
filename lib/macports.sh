@@ -286,7 +286,7 @@ port_check_upgrade() {
         local phase
         phase=$(awk -F'\t' -v n="${p}" '$1 == n && $2 != "?" {print $2; exit}' <<<"${pairs}")
         if [[ "${phase}" == nobinary ]]; then
-            detail="no binary for this Mac yet (binary-only upgrade): current version kept"
+            detail="no binary for this Mac (binary-only upgrade): current version kept"
         elif [[ -n "${phase}" ]]; then
             detail="failed at the \"${phase}\" phase"
         elif [[ " ${culprits} " == *" ${p} "* ]]; then
