@@ -28,6 +28,14 @@ earlier versions have none.
   `--allow-build --retry-quarantined` compiles it now). `--allow-build`
   now applies to maintenance as well as migrations.
 
+### Fixed
+
+- The binary check read a 404 from packages.macports.org as "no
+  answer" with macOS's own curl (8.7.1 exits 56 instead of 22 for a 404
+  over HTTP/2): the noarch archive names were never tried, and
+  `--migration-report` stopped checking after the first one. It now
+  reads the HTTP code.
+
 ### Added
 
 - `--limit <N>`: at most N successful migrations per run; the rest is
