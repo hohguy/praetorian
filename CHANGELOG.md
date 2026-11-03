@@ -35,6 +35,10 @@ earlier versions have none.
   over HTTP/2): the noarch archive names were never tried, and
   `--migration-report` stopped checking after the first one. It now
   reads the HTTP code.
+- A dry-run said nothing about an Xcode that wasn't ready, then the real
+  run stopped at once. The dry-run now warns with the commands, and both
+  name every Xcode problem at once (not selected, license, first launch)
+  instead of one per session.
 
 ### Added
 
