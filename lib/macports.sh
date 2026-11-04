@@ -19,9 +19,10 @@
 #     info) run without sudo; commands that change something go through
 #     sudo, one call per step and only when there is work to do (CIS
 #     timestamp_timeout=0: one Touch ID prompt each);
-#   - upgrades in a single "port -p upgrade <list>": -p keeps going after
-#     a failed port, so one broken port doesn't block the others (same
-#     reason as brew's one-at-a-time), without a sudo prompt per port;
+#   - upgrades one port per "port upgrade <port>" call, all inside one
+#     sudo (one prompt): a failed port doesn't block the others (same
+#     reason as brew's one-at-a-time), without -p (with -b, -p lets a
+#     forced rebuild compile and then uninstall the port: MacPorts #74668);
 #   - the result is checked with a second "port outdated": whatever is
 #     still outdated failed, whatever the exit code said;
 #   - never upgrade after a failed "port selfupdate" (ports tree possibly
@@ -232,7 +233,7 @@ save_port_logs() {
     fi
 }
 
-# After "port -p upgrade": whatever is still outdated failed.
+# After the upgrade: whatever is still outdated failed.
 # port_check_upgrade <counter before> port…
 port_check_upgrade() {
     local before=$1 step_out=${STEP_OUT} p pairs culprits detail
@@ -355,18 +356,22 @@ maintenance_macports() {
         # Binary-only (-b) unless --allow-build: MacPorts compiles neither
         # a port nor its dependencies. A port with no binary for its new
         # version fails and keeps its current version, active and usable
-        # (MacPorts only switches versions once the new one is installed),
-        # except on a forced rebuild (MacPorts #74668);
-        # -p goes on with the other ports.
-        local -a opts=(-b -N -p)
+        # (MacPorts only switches versions once the new one is installed).
+        # One "port upgrade <port>" per port, without -p (MacPorts #74668:
+        # with -b -p, a forced rebuild compiles, then uninstalls the
+        # port), all in one sudo: a fixed script, the port and the names
+        # only as arguments ($0, then "$@"), never as code.
+        # shellcheck disable=SC2016  # expanded by that sh, not here
+        local loop='r=0; for p do "$0" -b -N upgrade "$p" || r=1; done; exit $r'
         if [[ "${ALLOW_BUILD}" == true ]]; then
-            opts=(-N -p)
+            # shellcheck disable=SC2016
+            loop='r=0; for p do "$0" -N upgrade "$p" || r=1; done; exit $r'
         else
             say "    ${C_DIM}Binary-only (port -b): --allow-build lets MacPorts compile.${C_RESET}"
         fi
         before=${STEP_FAIL}
         run_step "Upgrading ${#ports[@]} MacPorts port(s)" \
-            "${SUDO_CMD[@]}" "${PORT_BIN}" "${opts[@]}" upgrade "${ports[@]}"
+            "${SUDO_CMD[@]}" /bin/sh -c "${loop}" "${PORT_BIN}" "${ports[@]}"
         [[ "${DRY_RUN}" == true ]] || port_check_upgrade "${before}" "${ports[@]}"
     fi
 
