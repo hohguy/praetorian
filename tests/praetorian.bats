@@ -190,14 +190,25 @@ with_macports() {
     [ "${status}" -eq 1 ]
 }
 
-@test "MacPorts: upgrade failing at archivefetch (binary-only) → same no-binary reason" {
+@test "MacPorts: upgrade failing at archivefetch with a 404 (binary-only) → same no-binary reason" {
     with_macports
     export PORT_OUTDATED="wget" PORT_OUTDATED_AFTER="wget" PORT_UPGRADE_RC=1
-    export PORT_UPGRADE_OUTPUT='Error: Failed to archivefetch wget: version @1.25.0_1'
+    export PORT_UPGRADE_OUTPUT='Error: Failed to archivefetch wget: Failed to fetch archive for wget: The requested URL returned error: 404'
     run "${PRAETORIAN}"
     [ "${status}" -eq 2 ]
     run cut -f5 "${QUARANTINE}"
     [ "${output}" = "no binary for this Mac (binary-only upgrade): current version kept" ]
+}
+
+@test "MacPorts: upgrade failing at archivefetch for another reason → that phase, not \"no binary\"" {
+    with_macports
+    export PORT_OUTDATED="wget" PORT_OUTDATED_AFTER="wget" PORT_UPGRADE_RC=1
+    export PORT_UPGRADE_OUTPUT='Error: Failed to archivefetch wget: Failed to fetch archive for wget: Could not resolve host: packages.macports.org'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" != *"No binary for this Mac"* ]] || false
+    run cut -f5 "${QUARANTINE}"
+    [ "${output}" = 'failed at the "archivefetch" phase' ]
 }
 
 @test "MacPorts: --allow-build → upgrade without -b" {
