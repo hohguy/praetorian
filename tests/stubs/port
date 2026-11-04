@@ -9,6 +9,8 @@
 #   PORT_OUTDATED          outdated ports (space-separated)
 #   PORT_OUTDATED_AFTER    ports still outdated after "port upgrade"
 #   PORT_UPGRADE_OUTPUT / PORT_UPGRADE_RC   port upgrade
+#   PORT_UPGRADE_FAILS     when set, only "port upgrade <p>" of these ports
+#                          (space-separated) prints the output and fails
 #   PORT_INSTALL_OUTPUT / PORT_INSTALL_RC   port install
 #   PORT_ACTIVE            ports already installed and active (port
 #                          installed <name>), before any "port install"
@@ -62,6 +64,7 @@ case "${1:-}" in
         ;;
     upgrade)
         touch "${state}.upgraded"
+        [[ -z "${PORT_UPGRADE_FAILS+set}" || " ${PORT_UPGRADE_FAILS} " == *" ${2:-} "* ]] || exit 0
         [[ -z "${PORT_UPGRADE_OUTPUT:-}" ]] || echo "${PORT_UPGRADE_OUTPUT}"
         exit "${PORT_UPGRADE_RC:-0}"
         ;;
