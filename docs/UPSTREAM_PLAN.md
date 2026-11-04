@@ -26,9 +26,9 @@ Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| A | Binary check reads the HTTP status: macOS's own curl (8.7.1) exits 56, not 22, for a 404 over HTTP/2 | Issue + PR | planned |
-| M | `--doctor` says a formula "isn't installed" when only its `opt` link is missing | Issue (PR offered) | planned |
-| N | `--doctor` misses a root-only symlink in the Homebrew prefix that makes `brew cleanup` fail | Issue (PR offered) | planned |
+| A | Binary check reads the HTTP status: macOS's own curl (8.7.1) exits 56, not 22, for a 404 over HTTP/2 | Issue + PR | posted: [#8](https://github.com/victor-sys-admin/praetorian/issues/8), PR to follow |
+| M | `--doctor` says a formula "isn't installed" when only its `opt` link is missing | Issue (PR offered) | posted: [#9](https://github.com/victor-sys-admin/praetorian/issues/9) |
+| N | `--doctor` misses a root-only symlink in the Homebrew prefix that makes `brew cleanup` fail | Issue (PR offered) | posted: [#10](https://github.com/victor-sys-admin/praetorian/issues/10) |
 
 ### Round 2: test speed
 
