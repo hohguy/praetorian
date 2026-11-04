@@ -156,7 +156,8 @@ with_macports() {
     run "${PRAETORIAN}"
     [ "${status}" -eq 0 ]
     grep -qx -- '-N selfupdate' "${PORT_CALLS}"
-    grep -qx -- '-b -N -p upgrade curl wget' "${PORT_CALLS}"
+    grep -qx -- '-b -N upgrade curl' "${PORT_CALLS}"
+    grep -qx -- '-b -N upgrade wget' "${PORT_CALLS}"
     grep -q -- "-n ${PRAETORIAN_PORT_PREFIX}/bin/port -N selfupdate" "${SUDO_CALLS}"
 }
 
@@ -173,12 +174,13 @@ with_macports() {
 
 @test "MacPorts: upgrade binary-only, a port without a binary keeps its version, the others go on" {
     with_macports
-    export PORT_OUTDATED="wget curl" PORT_OUTDATED_AFTER="wget" PORT_UPGRADE_RC=1
+    export PORT_OUTDATED="wget curl" PORT_OUTDATED_AFTER="wget" PORT_UPGRADE_RC=1 PORT_UPGRADE_FAILS=wget
     export PORT_UPGRADE_OUTPUT='Error: Archive for wget 1.25.0_1 not found, required when binary-only is set!'
     run "${PRAETORIAN}"
     [ "${status}" -eq 2 ]
     [[ "${output}" == *"Binary-only (port -b)"* ]] || false
-    grep -qx -- '-b -N -p upgrade curl wget' "${PORT_CALLS}"
+    grep -qx -- '-b -N upgrade curl' "${PORT_CALLS}"
+    grep -qx -- '-b -N upgrade wget' "${PORT_CALLS}"
     # curl upgraded, only wget reported and quarantined (retried later).
     [[ "${output}" == *"1 port(s) upgraded, 1 failed: wget"* ]] || false
     [[ "${output}" == *"No binary for this Mac: automatic retry in"* ]] || false
@@ -216,7 +218,7 @@ with_macports() {
     export PORT_OUTDATED="wget"
     run "${PRAETORIAN}" --allow-build
     [ "${status}" -eq 0 ]
-    grep -qx -- '-N -p upgrade wget' "${PORT_CALLS}"
+    grep -qx -- '-N upgrade wget' "${PORT_CALLS}"
     run grep -q -- '-b' "${PORT_CALLS}"
     [ "${status}" -eq 1 ]
 }
@@ -228,7 +230,25 @@ with_macports() {
     export PORT_OUTDATED="wget curl"
     run "${PRAETORIAN}"
     [ "${status}" -eq 0 ]
-    grep -qx -- '-b -N -p upgrade curl' "${PORT_CALLS}"
+    grep -qx -- '-b -N upgrade curl' "${PORT_CALLS}"
+    run grep -q 'upgrade wget' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "MacPorts: one sudo for the whole upgrade, one port call per port, never -p (MacPorts #74668)" {
+    with_macports
+    export PORT_OUTDATED="aaa bbb ccc" PORT_OUTDATED_AFTER="aaa" PORT_UPGRADE_FAILS=aaa PORT_UPGRADE_RC=1
+    export PORT_UPGRADE_OUTPUT='Error: Archive for aaa 1.1_0 not found, required when binary-only is set!'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    # The failed port doesn't stop the ones after it.
+    grep -qx -- '-b -N upgrade aaa' "${PORT_CALLS}"
+    grep -qx -- '-b -N upgrade bbb' "${PORT_CALLS}"
+    grep -qx -- '-b -N upgrade ccc' "${PORT_CALLS}"
+    [[ "${output}" == *"2 port(s) upgraded, 1 failed: aaa"* ]] || false
+    run grep -E -- '(^| )-p( |$)' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+    [ "$(grep -c upgrade "${SUDO_CALLS}")" -eq 1 ]
 }
 
 @test "MacPorts without sudo: the whole part deferred, nothing changed" {
