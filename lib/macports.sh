@@ -355,13 +355,14 @@ maintenance_macports() {
         # Binary-only (-b) unless --allow-build: MacPorts compiles neither
         # a port nor its dependencies. A port with no binary for its new
         # version fails and keeps its current version, active and usable
-        # (MacPorts only switches versions once the new one is installed);
+        # (MacPorts only switches versions once the new one is installed),
+        # except on a forced rebuild (MacPorts #74668);
         # -p goes on with the other ports.
         local -a opts=(-b -N -p)
         if [[ "${ALLOW_BUILD}" == true ]]; then
             opts=(-N -p)
         else
-            say "    ${C_DIM}Binary-only (port -b): a port with no binary for this Mac yet keeps its current version (--allow-build compiles it).${C_RESET}"
+            say "    ${C_DIM}Binary-only (port -b): --allow-build lets MacPorts compile.${C_RESET}"
         fi
         before=${STEP_FAIL}
         run_step "Upgrading ${#ports[@]} MacPorts port(s)" \
