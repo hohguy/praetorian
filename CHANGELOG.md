@@ -37,8 +37,8 @@ earlier versions have none.
   reads the HTTP code.
 - A dry-run said nothing about an Xcode that wasn't ready, then the real
   run stopped at once. The dry-run now warns with the commands, and both
-  name every Xcode problem at once (not selected, license, first launch)
-  instead of one per session.
+  list the commands for every Xcode problem found (not selected,
+  license, first launch) instead of one per session.
 - A port with no archive at all on packages.macports.org (no directory:
   `graphviz`, `lynx`) was reported as "binaries often appear a few days
   after a new version". The block and the report now say that there is
