@@ -331,6 +331,32 @@ in_praetorian() {
     [ ! -s "${CURL_URLS}" ]
 }
 
+@test "--migrate: a 404 is a 404 whatever curl's exit code (macOS curl 8.7.1 over HTTP/2: 56) → next archive name tried" {
+    export BREW_LIST_FILES="/usr/local/Cellar/automake/1.19/bin/automake"
+    export PORT_AVAILABLE="automake" PORT_FILES="automake=bin/automake"
+    export CURL_404_RC=56 CURL_PACKAGES="automake-1.0_0.any_any.noarch.tbz2"
+    run "${PRAETORIAN}" --dry-run --migrate automake
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Precompiled binary of automake available for this Mac"* ]] || false
+    [[ "${output}" != *"didn't answer"* ]] || false
+    [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 4 ]
+    grep -qx 'https://packages.macports.org/automake/automake-1.0_0.any_any.noarch.tbz2' "${CURL_URLS}"
+}
+
+@test "--migrate: packages.macports.org answering 503 or 403 → no verdict, not blocking" {
+    export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
+    export PORT_AVAILABLE="wget" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/wget"
+    for code in 503 403; do
+        : >"${CURL_URLS}"
+        export CURL_HTTP_ERROR=${code}
+        run "${PRAETORIAN}" --dry-run --migrate wget
+        [ "${status}" -eq 0 ]
+        [[ "${output}" == *"binary not checked (packages.macports.org didn't answer)"* ]] || false
+        [[ "${output}" != *"BLOCKED"* ]] || false
+        [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
+    done
+}
+
 # --- Dry-run and programs outside Homebrew ------------------------------------------
 
 @test "--migrate --dry-run: plan per port, nothing installed, no sudo" {
