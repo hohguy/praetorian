@@ -340,8 +340,7 @@ Homebrew → MacPorts migration:
                 and listed in the summary.
   --allow-build Lets MacPorts compile from source, for migrations and for
                 upgrades in the maintenance session. Without it, MacPorts
-                installs and upgrades binary-only (port -b), and a port
-                without a binary keeps its current version.
+                installs and upgrades binary-only (port -b).
   --limit <N>   With --migrate-all (or several --migrate): stops after N
                 successful migrations; the rest is listed as skipped.
                 Run again for the next N (blocked ones don't count).
