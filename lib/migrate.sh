@@ -429,8 +429,8 @@ port_binary_status() {
                 echo yes
                 return 0
                 ;;
-            403 | 404 | 410) ;; # not there: next name
-            *)                  # 000 (no connection, timeout), 5xx…: no verdict
+            404 | 410) ;; # not there: next name
+            *)            # 000 (no connection, timeout), 403, 5xx…: no verdict
                 echo offline
                 return 0
                 ;;
@@ -552,8 +552,9 @@ readonly PLAN_BINARY_MAX=40 # ports checked at most by one report
 # plan_binary_note <port>…: sets PLAN_BNOTE to " [no binary for this Mac:
 # <ports>]" for the ports packages.macports.org has no archive of for this
 # Mac, " [MacPorts publishes no binary: <ports>]" for those it has none of
-# at all, empty otherwise (a global, not printed: the counters must survive). Bounded:
-# PLAN_BINARY_MAX ports per report, none once the site stopped answering.
+# at all or may not distribute (license), empty otherwise (a global, not
+# printed: the counters must survive). Bounded: PLAN_BINARY_MAX ports per
+# report, none once the site stopped answering.
 PLAN_BNOTE=""
 plan_binary_note() {
     local q status missing="" never=""
@@ -570,7 +571,7 @@ plan_binary_note() {
                 PLAN_BINARY_MISSING=$((PLAN_BINARY_MISSING + 1))
                 missing+="${missing:+ }${q}"
                 ;;
-            none)
+            none | restricted)
                 PLAN_BINARY_MISSING=$((PLAN_BINARY_MISSING + 1))
                 never+="${never:+ }${q}"
                 ;;
@@ -1110,7 +1111,7 @@ migrate_install() {
         # port_check_upgrade, lib/macports.sh).
         local -a build_hint=()
         if [[ "${ALLOW_BUILD}" != true ]] &&
-            strip_ansi <<<"${STEP_OUT}" | grep -qE 'required when binary-only is set|Failed to (archivefetch|unarchive) '; then
+            strip_ansi <<<"${STEP_OUT}" | grep -qE 'required when binary-only is set|Failed to archivefetch .*returned error: 404'; then
             build_hint=("No binary for ${q} or one of its dependencies: MacPorts doesn't compile in binary-only mode (port -b)."
                 "Compile anyway (may take hours): praetorian --allow-build --migrate ${MIGRATE_SPEC}")
         fi
