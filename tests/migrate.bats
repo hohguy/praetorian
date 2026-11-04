@@ -343,6 +343,21 @@ in_praetorian() {
     [[ "${output}" != *"--allow-build"* ]] || false
 }
 
+@test "--migrate: archive download failing (404 or not) → the binary-only hint only for the 404" {
+    export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
+    export PORT_AVAILABLE="wget"
+    export PORT_INSTALL_RC=1 PORT_INSTALL_OUTPUT="Error: Failed to archivefetch wget: Failed to fetch archive for wget: The requested URL returned error: 404"
+    run "${PRAETORIAN}" --migrate wget
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"MacPorts doesn't compile in binary-only mode (port -b)"* ]] || false
+
+    export PORT_INSTALL_OUTPUT="Error: Failed to archivefetch wget: Binary-only mode requested with no usable archive sites configured"
+    run "${PRAETORIAN}" --migrate wget
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: installing wget with MacPorts failed"* ]] || false
+    [[ "${output}" != *"binary-only mode (port -b)"* ]] || false
+}
+
 @test "--migrate: a 404 is a 404 whatever curl's exit code (macOS curl 8.7 over HTTP/2: 56) → next archive name tried" {
     export BREW_LIST_FILES="/usr/local/Cellar/automake/1.19/bin/automake"
     export PORT_AVAILABLE="automake" PORT_FILES="automake=bin/automake"
@@ -355,7 +370,7 @@ in_praetorian() {
     grep -qx 'https://packages.macports.org/automake/automake-1.0_0.any_any.noarch.tbz2' "${CURL_URLS}"
 }
 
-@test "--migration-report: a 404 with curl exit 56 doesn't stop the other checks; a 503 is no answer" {
+@test "--migration-report: a 404 with curl exit 56 doesn't stop the other checks; a 503 or a 403 is no answer" {
     export BREW_LEAVES=$'aaa\nbbb'
     export PORT_AVAILABLE="aaa bbb"
     export CURL_404_RC=56 CURL_PACKAGES="bbb-1.0_0.darwin_24.x86_64.tbz2"
@@ -366,6 +381,13 @@ in_praetorian() {
 
     : >"${CURL_URLS}"
     export CURL_HTTP_ERROR=503
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"packages.macports.org didn't answer"* ]] || false
+    [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
+
+    : >"${CURL_URLS}"
+    export CURL_HTTP_ERROR=403
     run "${PRAETORIAN}" --migration-report
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"packages.macports.org didn't answer"* ]] || false
@@ -588,6 +610,13 @@ in_praetorian() {
     [ "$(grep -c '^uninstall' "${BREW_CALLS}")" -eq 2 ]
     run grep -qw 'install ccc' "${PORT_CALLS}"
     [ "${status}" -eq 1 ]
+
+    # Next run: aaa and bbb have left Homebrew; ccc is migrated.
+    export BREW_LEAVES="ccc" BREW_LIST_FILES="/usr/local/Cellar/ccc/1/bin/ccc"
+    run "${PRAETORIAN}" --limit 2 --migrate-all
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ccc: migrated"* ]] || false
+    grep -qw 'install ccc' "${PORT_CALLS}"
 }
 
 @test "--limit: blocked formulae don't count" {
@@ -688,4 +717,16 @@ in_praetorian() {
     [[ "${output}" == *"- wget [MacPorts publishes no binary: wget]"* ]] || false
     [[ "${output}" != *"[no binary for this Mac: wget]"* ]] || false
     [[ "${output}" == *"2 port(s) checked, 1 without one."* ]] || false
+}
+
+@test "--migration-report: a port MacPorts may not distribute (license) is noted, not ready" {
+    export BREW_LEAVES="wget"
+    export PORT_AVAILABLE="wget"
+    export BREW_HOMEPAGES="wget=https://www.gnu.org/software/wget/"
+    export PORT_INFO="wget=1.0_0,https://www.gnu.org/software/wget/,Commercial"
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"- wget [MacPorts publishes no binary: wget]"* ]] || false
+    [[ "${output}" == *"migrates the 0 of them"* ]] || false
+    [[ "${output}" == *"1 port(s) checked, 1 without one."* ]] || false
 }
