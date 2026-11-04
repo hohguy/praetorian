@@ -372,7 +372,7 @@ port_default_variants() {
 # the port at all on packages.macports.org, for any version or Mac:
 # usually its license, or a dependency's, keeps MacPorts from
 # distributing one; not checked in quick mode), "restricted" (license
-# MacPorts may not redistribute: never an archive, it's built here, often
+# MacPorts may not redistribute: no archive, it's built here, often
 # by only repackaging the vendor's binary), "offline" (no answer from
 # packages.macports.org) or "unknown" (no curl, unexpected platform or
 # port data). quick: only the archive for this architecture (one request).
@@ -437,8 +437,8 @@ port_binary_status() {
         esac
     done
     # No archive for this Mac. The port's directory tells "not for this
-    # Mac or version" (it exists) from "never published" (404:
-    # graphviz, lynx in 2026-11). Anything else: the plain "no".
+    # Mac or version" (it exists) from "no archive at all" (404:
+    # git in 2026-11). Anything else: the plain "no".
     if [[ -z "${quick}" ]]; then
         rc=0
         code=$(curl -sSI -L --proto =https --proto-redir =https --max-time "${BINARY_CHECK_TIMEOUT}" \
@@ -995,8 +995,8 @@ migrate_check_binary() {
             info "${restricted[*]}: no precompiled binary (its license doesn't let MacPorts distribute one): built on this Mac (--allow-build)."
             say "    ${C_DIM}Usually quick when the port only repackages the vendor's own binary (terraform-1.N).${C_RESET}"
         else
-            block "MacPorts never ships a binary of ${restricted[*]} (license)" \
-                "Its license doesn't let MacPorts distribute a precompiled archive: the port is always built on this Mac, and praetorian installs binary-only (port -b) unless you allow a build." \
+            block "MacPorts doesn't distribute a binary of ${restricted[*]} (license)" \
+                "Its license doesn't let MacPorts distribute a precompiled archive: the port is built on this Mac, and praetorian installs binary-only (port -b) unless you allow a build." \
                 "Nothing was done: no MacPorts install, no uninstall. ${f} stays in Homebrew." \
                 "Usually quick when the port only repackages the vendor's own binary (terraform-1.N):" \
                 "praetorian --allow-build --migrate ${MIGRATE_SPEC}"
