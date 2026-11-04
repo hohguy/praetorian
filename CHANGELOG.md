@@ -11,45 +11,39 @@ earlier versions have none.
 
 ## Unreleased
 
+### Added
+
+- `--limit <N>`: at most N successful migrations per run; the next run
+  picks up the rest. Blocked formulae don't count.
+- `--exclude <formula>[,…]`: skips these formulae in this run.
+
 ### Changed
 
-- Migrations install binary-only: `sudo port -b -N install` instead of
-  `-N install`. The binary check only looked at the ports named, not at
-  their dependencies, and let a port through when packages.macports.org
-  didn't answer; MacPorts could then compile from source. With `-b`,
-  MacPorts refuses to compile, and a failed install suggests
-  `--allow-build`.
-- A port whose license never has a binary (`terraform-1.N`) is blocked
-  unless `--allow-build`, instead of being built without asking.
+- The binary check misses dependencies and lets a port through when
+  packages.macports.org doesn't answer, so MacPorts could still compile.
+  Migrations now install binary-only (`sudo port -b -N install`); a
+  failed install suggests `--allow-build`.
+- A port whose license doesn't let MacPorts distribute a binary
+  (`terraform-1.N`) is blocked unless `--allow-build`, instead of being
+  built without asking.
 - The maintenance session upgrades MacPorts binary-only too
   (`sudo port -b -N -p upgrade`). A port with no binary for its new
-  version keeps its current version, the other ports are upgraded, and it
-  is quarantined as "no binary for this Mac yet" (retried after 7 days;
-  `--allow-build --retry-quarantined` compiles it now). `--allow-build`
-  now applies to maintenance as well as migrations.
+  version keeps its current version and is quarantined, except on a
+  forced rebuild ([MacPorts #74668](https://trac.macports.org/ticket/74668)).
+  `--allow-build` now applies to maintenance as well as migrations.
 
 ### Fixed
 
-- The binary check read a 404 from packages.macports.org as "no
-  answer" with macOS's own curl (8.7.1 exits 56 instead of 22 for a 404
-  over HTTP/2): the noarch archive names were never tried, and
-  `--migration-report` stopped checking after the first one. It now
-  reads the HTTP code.
-- A dry-run said nothing about an Xcode that wasn't ready, then the real
-  run stopped at once. The dry-run now warns with the commands, and both
-  list the commands for every Xcode problem found (not selected,
-  license, first launch) instead of one per session.
-- A port with no archive at all on packages.macports.org (no directory:
-  `graphviz`, `lynx`) was reported as "binaries often appear a few days
-  after a new version". The block and the report now say that there is
-  no archive for any version or Mac.
-
-### Added
-
-- `--limit <N>`: at most N successful migrations per run; the rest is
-  listed as skipped and the next run picks it up. Blocked formulae don't
-  count.
-- `--exclude <formula>[,…]`: formulae a migration run leaves alone.
+- macOS's own curl (8.7.1) exits 56, not 22, for a 404 over HTTP/2, so
+  the binary check read every 404 as "no answer": the noarch archive
+  names were never tried, and `--migration-report` stopped checking
+  after the first one. It now reads the HTTP code.
+- `--dry-run` said nothing about an Xcode that wasn't ready, then the
+  real run stopped. `--dry-run` now warns, and both list the commands
+  for every problem found instead of one per session.
+- A port with no archive at all on packages.macports.org (`git`) was
+  reported as "binaries often appear a few days after a new version". It
+  is now reported as having no archive for any version or Mac.
 
 ## 1.5.0 - 2026-10-18
 
