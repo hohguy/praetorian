@@ -26,11 +26,14 @@ earlier versions have none.
 - A port whose license doesn't let MacPorts distribute a binary
   (`terraform-1.N`) is blocked unless `--allow-build`, instead of being
   built without asking.
-- The maintenance session upgrades MacPorts binary-only too
-  (`sudo port -b -N -p upgrade`). A port with no binary for its new
-  version keeps its current version and is quarantined, except on a
-  forced rebuild ([MacPorts #74668](https://trac.macports.org/ticket/74668)).
-  `--allow-build` now applies to maintenance as well as migrations.
+- The maintenance session upgrades MacPorts binary-only too, one port
+  per `port -b -N upgrade` call inside a single sudo, instead of one
+  `port -p upgrade <list>`: with `-b`, `-p` lets a forced rebuild compile
+  the port, then leave it uninstalled
+  ([MacPorts #74668](https://trac.macports.org/ticket/74668)). A port
+  with no binary for its new version keeps its current version and is
+  quarantined. `--allow-build` now applies to maintenance as well as
+  migrations.
 
 ### Fixed
 
