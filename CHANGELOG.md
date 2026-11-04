@@ -9,6 +9,16 @@ README (section "Latest release") must match, and so must the top entry
 of this file: a test checks all three. Git tags start at 1.5.0: the
 earlier versions have none.
 
+## Unreleased
+
+### Fixed
+
+- macOS's own curl (8.7.1) exits 56, not 22, for a 404 over HTTP/2, so
+  the binary check read every 404 as "no answer": the noarch archive
+  names were never tried, and `--migration-report` stopped checking
+  after the first one. It now reads the HTTP code; a 403 or a 5xx is no
+  answer, not a missing archive.
+
 ## 1.5.0 - 2026-10-18
 
 Shaped by the day the author's Intel Mac moved from Homebrew to MacPorts
