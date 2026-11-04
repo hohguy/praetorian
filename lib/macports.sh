@@ -270,13 +270,15 @@ port_check_upgrade() {
 
     # "Error: Failed to build foo: …", "Error: Failed to configure foo, …",
     # "Error: Processing of port foo failed" → name<TAB>phase. Binary-only
-    # (-b): "Error: Failed to archivefetch foo: …" or "Archive for foo
-    # 1.2_0 not found, required when binary-only is set!" (MacPorts 2.12,
-    # package1.0/portarchivefetch.tcl and portunarchive.tcl) → nobinary.
+    # (-b): "Error: Failed to archivefetch foo: … returned error: 404" or
+    # "Archive for foo 1.2_0 not found, required when binary-only is set!"
+    # (MacPorts 2.12, package1.0/portarchivefetch.tcl and portunarchive.tcl)
+    # → nobinary. Other archivefetch errors (network, archive sites) keep
+    # their phase.
     pairs=$(strip_ansi <<<"${step_out}" | awk '
         /required when binary-only is set/ { for (i = 1; i < NF; i++) if ($i == "for") { print $(i + 1) "\tnobinary"; break }; next }
         $1 == "Error:" && $2 == "Failed" && $3 == "to" { n = $5; sub(/[:,.]$/, "", n); ph = $4
-            if (ph == "archivefetch" || ph == "unarchive") ph = "nobinary"; print n "\t" ph }
+            if (ph == "archivefetch" && /returned error: 404/) ph = "nobinary"; print n "\t" ph }
         $1 == "Error:" && $2 == "Processing" && $3 == "of" && $4 == "port" { print $5 "\t?" }
     ' | sort -u)
     culprits=$(cut -f1 <<<"${pairs}" | sed '/^$/d' | sort -u | tr '\n' ' ')
