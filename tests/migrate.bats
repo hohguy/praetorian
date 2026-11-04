@@ -394,7 +394,7 @@ in_praetorian() {
     [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
 }
 
-@test "--migrate: no archive of the port at all (directory 404) → blocked as never published, waiting not suggested" {
+@test "--migrate: no archive of the port at all (directory 404) → blocked as no archive at all, waiting not suggested" {
     export BREW_LIST_FILES="/usr/local/Cellar/graphviz/12/bin/dot"
     export PORT_AVAILABLE="graphviz" PORT_FILES="graphviz=bin/dot"
     export CURL_PACKAGES="" CURL_NO_DIR="graphviz"
@@ -444,7 +444,7 @@ in_praetorian() {
     : >"${PORT_CALLS}"
     run "${PRAETORIAN}" --migrate hashicorp/tap/terraform=terraform-1.16
     [ "${status}" -eq 2 ]
-    [[ "${output}" == *"BLOCKED: MacPorts never ships a binary of terraform-1.16 (license)"* ]] || false
+    [[ "${output}" == *"BLOCKED: MacPorts doesn't distribute a binary of terraform-1.16 (license)"* ]] || false
     [[ "${output}" == *"praetorian --allow-build --migrate hashicorp/tap/terraform=terraform-1.16"* ]] || false
     [ ! -s "${CURL_URLS}" ]
     run grep -qw install "${PORT_CALLS}"
@@ -706,7 +706,7 @@ in_praetorian() {
     [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
 }
 
-@test "--migration-report: a port never published is noted as such" {
+@test "--migration-report: a port with no archive at all is noted as such" {
     export BREW_LEAVES=$'wget\ncurl'
     export PORT_AVAILABLE="wget curl"
     export BREW_HOMEPAGES="wget=https://www.gnu.org/software/wget/ curl=https://curl.se"
