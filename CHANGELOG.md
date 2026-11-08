@@ -9,6 +9,14 @@ README (section "Latest release") must match, and so must the top entry
 of this file: a test checks all three. Git tags start at 1.5.0: the
 earlier versions have none.
 
+## Unreleased
+
+### Fixed
+
+- `--doctor` said a formula "isn't installed", and told you to remove its
+  `PATH` entry, when the formula was installed and only its `opt` link
+  was missing. It now says so and gives the `brew link` command.
+
 ## 1.5.1 - 2026-11-08
 
 ### Fixed
