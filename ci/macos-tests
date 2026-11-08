@@ -10,6 +10,7 @@
 # osascript, launchctl and pmset, as in the container; HOME is a temp directory.
 #
 # Usage: ci/macos-tests [bats options]
+#        ci/macos-tests --jobs 6   (parallel run: needs GNU parallel)
 #
 set -euo pipefail
 
@@ -42,9 +43,17 @@ if [[ "$(git -C "${WORK}/bats" rev-parse HEAD)" != "${BATS_COMMIT}" ]]; then
     exit 1
 fi
 
+# GNU parallel, for bats --jobs: found in your PATH before it's reset, and
+# only that command is added, last, so nothing else of the PATH comes back.
+parallel_bin=$(command -v parallel || true)
 # /bin first: "#!/usr/bin/env bash" then finds /bin/bash 3.2, not a newer
 # bash from Homebrew; BSD tools rather than GNU ones.
 export PATH=/bin:/usr/bin:/usr/sbin:/sbin
+if [[ -n "${parallel_bin}" ]]; then
+    mkdir -p "${WORK}/bin"
+    ln -s "${parallel_bin}" "${WORK}/bin/parallel"
+    PATH="${PATH}:${WORK}/bin"
+fi
 # The tests set up their own HOME and prefixes: a value from your shell
 # (PRAETORIAN_HOME pointing at your real state, for one) must not leak in.
 unset PRAETORIAN_HOME PRAETORIAN_PORT_PREFIX PRAETORIAN_SUDO_LOCAL PRAETORIAN_MIN_FREE_GB PRAETORIAN_CAFFEINATED PRAETORIAN_NOTIFY_AFTER PRAETORIAN_NETWORK_WAIT PRAETORIAN_DOCTOR_ROOT
