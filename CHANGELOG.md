@@ -9,6 +9,15 @@ README (section "Latest release") must match, and so must the top entry
 of this file: a test checks all three. Git tags start at 1.5.0: the
 earlier versions have none.
 
+## Unreleased
+
+### Fixed
+
+- `--doctor` missed a link in the Homebrew prefix that only its owner can
+  read, such as a root-only link an app's installer put in
+  `/usr/local/bin`: `brew cleanup` stops on it. It now reports it, with
+  the `sudo chmod -h 755` that lets you read it and leaves it the owner's.
+
 ## 1.5.1 - 2026-11-08
 
 ### Fixed
