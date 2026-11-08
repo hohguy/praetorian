@@ -9,7 +9,7 @@ README (section "Latest release") must match, and so must the top entry
 of this file: a test checks all three. Git tags start at 1.5.0: the
 earlier versions have none.
 
-## Unreleased
+## 1.5.1 - 2026-11-08
 
 ### Fixed
 
@@ -18,6 +18,9 @@ earlier versions have none.
   names were never tried, and `--migration-report` stopped checking
   after the first one. It now reads the HTTP code; a 403 or a 5xx is no
   answer, not a missing archive.
+- `--migration-report` explained every kind of `[ ]` note, even those
+  that didn't appear (a `[brew service running]` legend with no service
+  running): it now explains only the notes listed above it.
 
 ## 1.5.0 - 2026-10-18
 
@@ -150,9 +153,6 @@ version carries both.
 
 ### Fixed
 
-- `--migration-report` explained every kind of `[ ]` note, even those
-  that didn't appear (a `[brew service running]` legend with no service
-  running): it now explains only the notes listed above it.
 - `--migrate` compared every `bin` directory of the keg, internal ones
   included (`libexec/bin` of pipx and scons, `lib/rustlib/…/bin` of
   rust): 4 migrations were refused for commands MacPorts has no reason
