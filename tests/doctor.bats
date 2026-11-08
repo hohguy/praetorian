@@ -353,6 +353,25 @@ fake_pkgutil() {
     [[ "${output}" != *"(wrong)"* ]] || false
 }
 
+@test "doctor PATH: installed formula whose opt link is missing → brew link, not \"isn't installed\"" {
+    mkdir -p "${BREW_PREFIX}/Cellar/python@3.14/3.14.7/libexec/bin"
+    echo "export PATH=\"${BREW_PREFIX}/opt/python@3.14/libexec/bin:\$PATH\"" >"${HOME}/.zprofile"
+    run_doctor "${TEST_PATH}:${BREW_PREFIX}/opt/python@3.14/libexec/bin"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"the formula python@3.14 is installed, but its link ${BREW_PREFIX}/opt/python@3.14 is missing."* ]] || false
+    [[ "${output}" == *"brew link python@3.14"* ]] || false
+    [[ "${output}" != *"isn't installed"* ]] || false
+    [[ "${output}" != *"Remove it from"* ]] || false
+}
+
+@test "doctor PATH: opt link missing, formula already linked → brew unlink then brew link" {
+    mkdir -p "${BREW_PREFIX}/Cellar/python@3.14/3.14.7/libexec/bin" "${BREW_PREFIX}/var/homebrew/linked"
+    ln -s ../../../Cellar/python@3.14/3.14.7 "${BREW_PREFIX}/var/homebrew/linked/python@3.14"
+    run_doctor "${TEST_PATH}:${BREW_PREFIX}/opt/python@3.14/libexec/bin"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"brew unlink python@3.14 && brew link python@3.14"* ]] || false
+}
+
 @test "doctor PATH: an installed formula's opt directory is fine" {
     mkdir -p "${BREW_PREFIX}/Cellar/libpcap/1.10/bin"
     ln -s ../Cellar/libpcap/1.10 "${BREW_PREFIX}/opt/libpcap"

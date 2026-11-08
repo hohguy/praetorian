@@ -400,6 +400,19 @@ doctor_path() {
         if [[ -n "${prefix}" && "${dir}" == "${prefix}/opt/"* && ! -e "${dir}" ]]; then
             f=${dir#"${prefix}/opt/"}
             f=${f%%/*}
+            # Installed, only its opt link is missing: brew link makes it,
+            # unless the formula is already linked (then unlink first) or
+            # keg-only (brew link refuses; reinstall makes the opt link).
+            if [[ -d "${prefix}/Cellar/${f}" && ! -e "${prefix}/opt/${f}" ]]; then
+                if [[ -e "${prefix}/var/homebrew/linked/${f}" ]]; then
+                    doctor_problem 1 "PATH: ${dir}: the formula ${f} is installed, but its link ${prefix}/opt/${f} is missing." \
+                        "brew unlink $(shq "${f}") && brew link $(shq "${f}")"
+                else
+                    doctor_problem 1 "PATH: ${dir}: the formula ${f} is installed, but its link ${prefix}/opt/${f} is missing." \
+                        "brew link $(shq "${f}")   (if brew says it's keg-only: brew reinstall $(shq "${f}"))"
+                fi
+                continue
+            fi
             where=$(shell_rc_refs "${f}" "${prefix}" 2>/dev/null | cut -d: -f1,2 | sort -u | tr '\n' ' ' || true)
             # The formula, or a tap formula ending in /<formula>: compared
             # as text (python@3.12, libxml++ aren't regular expressions).
