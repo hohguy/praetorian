@@ -20,6 +20,9 @@ earlier versions have none.
   read, such as a root-only link an app's installer put in
   `/usr/local/bin`: `brew cleanup` stops on it. It now reports it, with
   the `sudo chmod -h 755` that lets you read it and leaves it the owner's.
+- `ci/macos-tests --jobs N` ran no test: the script resets the PATH,
+  and bats needs GNU parallel for `--jobs`. It now keeps `parallel`,
+  and only that, in the PATH.
 
 ## 1.5.1 - 2026-11-08
 
