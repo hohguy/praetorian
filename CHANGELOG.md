@@ -9,7 +9,7 @@ README (section "Latest release") must match, and so must the top entry
 of this file: a test checks all three. Git tags start at 1.5.0: the
 earlier versions have none.
 
-## Unreleased
+## 1.5.2 - 2026-11-09
 
 ### Fixed
 
