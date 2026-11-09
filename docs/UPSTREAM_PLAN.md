@@ -27,14 +27,14 @@ Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 | Item | Change | Kind | Status |
 |---|---|---|---|
 | A | Binary check reads the HTTP status: macOS's own curl (8.7.1) exits 56, not 22, for a 404 over HTTP/2 | Issue + PR | merged, released in 1.5.1: [#8](https://github.com/victor-sys-admin/praetorian/issues/8), PR [#11](https://github.com/victor-sys-admin/praetorian/pull/11) |
-| M | `--doctor` says a formula "isn't installed" when only its `opt` link is missing | Issue, then PR (asked for) | posted: [#9](https://github.com/victor-sys-admin/praetorian/issues/9), PR [#13](https://github.com/victor-sys-admin/praetorian/pull/13) |
-| N | `--doctor` misses a root-only symlink in the Homebrew prefix that makes `brew cleanup` fail | Issue, then PR (asked for) | posted: [#10](https://github.com/victor-sys-admin/praetorian/issues/10), PR [#14](https://github.com/victor-sys-admin/praetorian/pull/14) |
+| M | `--doctor` says a formula "isn't installed" when only its `opt` link is missing | Issue, then PR (asked for) | merged: [#9](https://github.com/victor-sys-admin/praetorian/issues/9), PR [#13](https://github.com/victor-sys-admin/praetorian/pull/13) |
+| N | `--doctor` misses a root-only symlink in the Homebrew prefix that makes `brew cleanup` fail | Issue, then PR (asked for) | merged: [#10](https://github.com/victor-sys-admin/praetorian/issues/10), PR [#14](https://github.com/victor-sys-admin/praetorian/pull/14) |
 
 ### Round 2: test speed
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| F | `ci/macos-tests --jobs N` with GNU parallel, for contributors (the app itself doesn't use it) | Issue + PR | planned |
+| F | `ci/macos-tests --jobs N` with GNU parallel, for contributors (the app itself doesn't use it) | Issue + PR | posted: [#16](https://github.com/victor-sys-admin/praetorian/issues/16), PR [#17](https://github.com/victor-sys-admin/praetorian/pull/17) |
 
 ### Round 3
 
@@ -64,7 +64,7 @@ one port per `port` call inside one sudo, without `-p`.
 | I | MacPorts `replaced_by` names aren't flagged | Issue | planned |
 | J | coreutils: MacPorts installs `g`-prefixed names; not in the known-traps table | Issue | planned |
 | K | A dry run can't predict a dependency with no binary; a failed binary-only install leaves the dependencies it already installed | Issue | planned |
-| L | Test-suite run time | Issue | planned |
+| L | Test-suite run time | Issue | folded into F (timings in #16 and #17) |
 | O | A block message gives a machine-specific example ("every mysql port on this Mac") | Issue | planned |
 | P | The progress line isn't cleared before the ✓; MacPorts' "ports you installed have notes" isn't shown | Issue | planned |
 | S | The report flags the same project under an old and a new homepage address | Issue | planned |
