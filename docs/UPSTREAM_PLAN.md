@@ -27,23 +27,30 @@ Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 | Item | Change | Kind | Status |
 |---|---|---|---|
 | A | Binary check reads the HTTP status: macOS's own curl (8.7.1) exits 56, not 22, for a 404 over HTTP/2 | Issue + PR | merged, released in 1.5.1: [#8](https://github.com/victor-sys-admin/praetorian/issues/8), PR [#11](https://github.com/victor-sys-admin/praetorian/pull/11) |
-| M | `--doctor` says a formula "isn't installed" when only its `opt` link is missing | Issue, then PR (asked for) | merged: [#9](https://github.com/victor-sys-admin/praetorian/issues/9), PR [#13](https://github.com/victor-sys-admin/praetorian/pull/13) |
-| N | `--doctor` misses a root-only symlink in the Homebrew prefix that makes `brew cleanup` fail | Issue, then PR (asked for) | merged: [#10](https://github.com/victor-sys-admin/praetorian/issues/10), PR [#14](https://github.com/victor-sys-admin/praetorian/pull/14) |
+| M | `--doctor` says a formula "isn't installed" when only its `opt` link is missing | Issue, then PR (asked for) | merged, released in 1.5.2: [#9](https://github.com/victor-sys-admin/praetorian/issues/9), PR [#13](https://github.com/victor-sys-admin/praetorian/pull/13) |
+| N | `--doctor` misses a root-only symlink in the Homebrew prefix that makes `brew cleanup` fail | Issue, then PR (asked for) | merged, released in 1.5.2: [#10](https://github.com/victor-sys-admin/praetorian/issues/10), PR [#14](https://github.com/victor-sys-admin/praetorian/pull/14) |
 
 ### Round 2: test speed
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| F | `ci/macos-tests --jobs N` with GNU parallel, for contributors (the app itself doesn't use it) | Issue + PR | posted: [#16](https://github.com/victor-sys-admin/praetorian/issues/16), PR [#17](https://github.com/victor-sys-admin/praetorian/pull/17) |
+| F | `ci/macos-tests --jobs N` with GNU parallel, for contributors (the app itself doesn't use it) | Issue + PR | merged: [#16](https://github.com/victor-sys-admin/praetorian/issues/16), PR [#17](https://github.com/victor-sys-admin/praetorian/pull/17) |
 
-### Round 3
+### Round 3: migration correctness
+
+| Item | Change | Kind | Status |
+|---|---|---|---|
+| I | An obsolete MacPorts port (`replaced_by`, e.g. `docbook-xsl` → `docbook-xsl-nons`) is taken as is: "no binary" block, listed under "Same name" | Issue + PR | posted: [#18](https://github.com/victor-sys-admin/praetorian/issues/18), PR [#19](https://github.com/victor-sys-admin/praetorian/pull/19) |
+| T | Settings outside the shell startup files (Git credential helper, app settings, launch daemons) can name the formula's Homebrew path; proposed: a filtered read-only search in `--migration-report` and `--doctor` | Issue (PR offered) | posted: [#20](https://github.com/victor-sys-admin/praetorian/issues/20) |
+
+### Round 4
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
 | E | Xcode: a dry run warns instead of skipping the check; every problem listed at once | Issue, then PR if wanted | planned |
 | D | `--limit N` and `--exclude a,b` for batch migrations | Issue, then PR if wanted | planned |
 
-### Round 4: binary-only MacPorts
+### Round 5: binary-only MacPorts
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
@@ -61,14 +68,12 @@ one port per `port` call inside one sudo, without `-p`.
 |---|---|---|---|
 | G | Build dependencies of formulae still in Homebrew aren't taken into account (`--prune` offers the compilers Homebrew needs to build what stays) | Issue | planned |
 | H | No per-port build allowance for maintenance upgrades | Issue | planned |
-| I | MacPorts `replaced_by` names aren't flagged | Issue | planned |
-| J | coreutils: MacPorts installs `g`-prefixed names; not in the known-traps table | Issue | planned |
+| J | coreutils: MacPorts installs `g`-prefixed names; not in the known-traps table | Issue | dropped: Homebrew's coreutils uses the same `g` names and `libexec/gnubin`; a `gnubin` PATH line is already blocked |
 | K | A dry run can't predict a dependency with no binary; a failed binary-only install leaves the dependencies it already installed | Issue | planned |
 | L | Test-suite run time | Issue | folded into F (timings in #16 and #17) |
 | O | A block message gives a machine-specific example ("every mysql port on this Mac") | Issue | planned |
 | P | The progress line isn't cleared before the ✓; MacPorts' "ports you installed have notes" isn't shown | Issue | planned |
 | S | The report flags the same project under an old and a new homepage address | Issue | planned |
-| T | A migration doesn't look at `~/.gitconfig`: a credential helper (or `gpg.program`, `core.editor`) naming the Homebrew path breaks once the formula moves (`gh` → `git push` over HTTPS fails) | Issue | planned |
 | U | Disk use during a long formula upgrade: free space is checked only at the start and `brew cleanup` runs only at the end (suggest `brew cleanup <formula>` after each upgrade, a free-space check before each formula, and on low space: stop, skip the casks, still clean up) | Issue (feature request) | planned, after round 2 |
 
 Items G to L are features that may not fit a project that is "small on
