@@ -20,9 +20,9 @@ It runs on any Mac with macOS's own `/bin/bash` 3.2 and Homebrew and/or MacPorts
 
 ## Latest release
 
-### 1.5.1 (2026-11-08)
+### 1.5.2 (2026-11-09)
 
-The precompiled-binary check reads the HTTP code, so a missing archive is found missing with macOS's own curl too, and `--migration-report` explains only the `[ ]` notes it shows. 1.5.0 brought migration in batches (`--migrate` repeated, `--migrate-all`) with companion ports, a table of known MacPorts traps, homepage and precompiled-binary checks, and commands checked where the shell finds them; read-only `--status`, `--doctor` and `--sbom`; `--prune` for the dependencies `brew autoremove` misses; unattended sessions wait for the network; logs under 7 days are never rotated away. 1.4.0 added the overnight scheduling (`praetorian-schedule`) and the notifications. Full list and earlier versions: [CHANGELOG.md](CHANGELOG.md).
+`--doctor` no longer calls an installed formula "not installed" when only its `opt` link is missing (it gives the `brew link` command), and it reports a link in the Homebrew prefix that only its owner can read, which stops `brew cleanup` (with the `sudo chmod -h 755` that fixes it). 1.5.1 made the precompiled-binary check read the HTTP code, so a missing archive is found missing with macOS's own curl too, and `--migration-report` explain only the `[ ]` notes it shows. 1.5.0 brought migration in batches (`--migrate` repeated, `--migrate-all`) with companion ports, a table of known MacPorts traps, homepage and precompiled-binary checks, and commands checked where the shell finds them; read-only `--status`, `--doctor` and `--sbom`; `--prune` for the dependencies `brew autoremove` misses; unattended sessions wait for the network; logs under 7 days are never rotated away. 1.4.0 added the overnight scheduling (`praetorian-schedule`) and the notifications. Full list and earlier versions: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
