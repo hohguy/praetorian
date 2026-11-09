@@ -194,6 +194,26 @@ in_praetorian() {
     [[ "${output}" == *"foo migrated to MacPorts (foo)."* ]] || false
 }
 
+@test "--migrate: obsolete port (replaced_by) → blocked with the replacement, nothing installed" {
+    export BREW_LIST_FILES="/usr/local/Cellar/docbook-xsl/1.79.2/share/docbook-xsl/VERSION"
+    export PORT_AVAILABLE="docbook-xsl docbook-xsl-nons" PORT_REPLACED_BY="docbook-xsl=docbook-xsl-nons"
+    run "${PRAETORIAN}" --migrate docbook-xsl
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: docbook-xsl is obsolete in MacPorts: replaced by docbook-xsl-nons"* ]] || false
+    [[ "${output}" == *"praetorian --migrate docbook-xsl=docbook-xsl-nons"* ]] || false
+    # Stopped before the binary check: no request for the obsolete port.
+    [ ! -s "${CURL_URLS}" ]
+    run grep -qw install "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+
+    # A companion: only that port is swapped in the suggested spec.
+    export BREW_LIST_FILES="/usr/local/Cellar/foo/1.0/bin/foo"
+    export PORT_AVAILABLE="foo foo-old foo-new" PORT_REPLACED_BY="foo-old=foo-new"
+    run "${PRAETORIAN}" --migrate foo=foo,foo-old
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"praetorian --migrate foo=foo,foo-new"* ]] || false
+}
+
 @test "--migrate: same homepage → said so" {
     export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
     export PORT_AVAILABLE="wget" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/wget"
@@ -509,6 +529,24 @@ in_praetorian() {
     [[ "${output}" != *"[brew service running]"* ]] || false
     [[ "${output}" != *"[referenced in ~/.zshrc…]"* ]] || false
     run grep -wE 'install|uninstall|selfupdate|select|setrequested' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "--migration-report: obsolete same-name port → its replacement, not counted for --migrate-all" {
+    export BREW_LEAVES=$'docbook-xsl\nwget'
+    export PORT_AVAILABLE="docbook-xsl docbook-xsl-nons wget" PORT_REPLACED_BY="docbook-xsl=docbook-xsl-nons"
+    export BREW_HOMEPAGES="docbook-xsl=https://docbook.org/ wget=https://www.gnu.org/software/wget/"
+    export PORT_INFO="docbook-xsl=1.79.2_4,http://docbook.org/,MIT wget=1.0_0,https://www.gnu.org/software/wget/,GPL"
+    export CURL_PACKAGES="docbook-xsl-nons-1.0_0.darwin_24.x86_64.tbz2 wget-1.0_0.darwin_24.x86_64.tbz2"
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Same name in MacPorts (1)"* ]] || false
+    [[ "${output}" == *"docbook-xsl → docbook-xsl-nons (docbook-xsl is obsolete in MacPorts: praetorian --migrate docbook-xsl=docbook-xsl-nons)"* ]] || false
+    [[ "${output}" == *"migrates the 1 of them"* ]] || false
+    # The replacement's archive is the one checked, not the obsolete port's.
+    [[ "${output}" != *"[no binary for this Mac"* ]] || false
+    grep -q docbook-xsl-nons "${CURL_URLS}"
+    run grep -q "/docbook-xsl/" "${CURL_URLS}"
     [ "${status}" -eq 1 ]
 }
 
