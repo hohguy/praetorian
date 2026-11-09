@@ -28,6 +28,9 @@ ships, and nothing to install. Please keep it that way.
    ci/macos-tests
    ```
 
+   With GNU parallel installed, `ci/macos-tests --jobs 6` runs the
+   tests in parallel.
+
 3. Add or update tests in `tests/*.bats` for any behavior change. The
    fakes in `tests/stubs/` replace `brew`, `port`, `sudo` and friends:
    the tests never run the real ones. A new `.bats` file is picked up by

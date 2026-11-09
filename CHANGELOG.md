@@ -9,6 +9,14 @@ README (section "Latest release") must match, and so must the top entry
 of this file: a test checks all three. Git tags start at 1.5.0: the
 earlier versions have none.
 
+## Unreleased
+
+### Fixed
+
+- `ci/macos-tests --jobs N` ran no test: the script resets the PATH,
+  and bats needs GNU parallel for `--jobs`. It now keeps `parallel`,
+  and only that, in the PATH.
+
 ## 1.5.2 - 2026-11-09
 
 ### Fixed
