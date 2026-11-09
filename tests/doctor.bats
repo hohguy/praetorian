@@ -240,6 +240,28 @@ fake_pkgutil() {
     [[ "${output}" == *"problems=3"* ]] # Cellar, opt, bin/wget
 }
 
+@test "doctor ownership: a link you can't read (brew cleanup stops on it) → sudo chmod -h, whatever its target" {
+    fake_exe "${PRAETORIAN_DOCTOR_ROOT}/Applications/Tool.app/Contents/MacOS/tool"
+    ln -s "${PRAETORIAN_DOCTOR_ROOT}/Applications/Tool.app/Contents/MacOS/tool" "${BREW_PREFIX}/bin/tool"
+    fake_exe "${BREW_PREFIX}/bin/firebase"
+    # A root-only link (mode 0700): readlink is refused. Faked, so the
+    # test runs anywhere and without root.
+    local bin="${BATS_TEST_TMPDIR}/fakebin" real
+    real=$(command -v readlink)
+    mkdir -p "${bin}"
+    # shellcheck disable=SC2016  # $1 and $@ belong to the fake readlink
+    printf '#!/bin/sh\n[ "$1" = "%s" ] && { echo "readlink: Permission denied" >&2; exit 1; }\nexec %s "$@"\n' \
+        "${BREW_PREFIX}/bin/tool" "${real}" >"${bin}/readlink"
+    chmod +x "${bin}/readlink"
+    TEST_PATH="${bin}:${TEST_PATH}"
+    # shellcheck disable=SC2016  # expanded by the bash of in_praetorian
+    run in_praetorian 'export FAKE_UID=4242; doctor_brew_ownership "${BREW_PREFIX}"'
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"sudo chmod -h 755 ${BREW_PREFIX}/bin/tool"* ]] || false
+    [[ "${output}" != *"ls -la ${BREW_PREFIX}/bin/tool "* ]] || false
+    [[ "${output}" != *"firebase"* ]] || false
+}
+
 @test "doctor ownership: everything yours → nothing reported" {
     fake_exe "${BREW_PREFIX}/Cellar/wget/1.25/bin/wget"
     mkdir -p "${BREW_PREFIX}/lib/python3.13/site-packages/foo/__pycache__"

@@ -16,6 +16,10 @@ earlier versions have none.
 - `--doctor` said a formula "isn't installed", and told you to remove its
   `PATH` entry, when the formula was installed and only its `opt` link
   was missing. It now says so and gives the `brew link` command.
+- `--doctor` missed a link in the Homebrew prefix that only its owner can
+  read, such as a root-only link an app's installer put in
+  `/usr/local/bin`: `brew cleanup` stops on it. It now reports it, with
+  the `sudo chmod -h 755` that lets you read it and leaves it the owner's.
 
 ## 1.5.1 - 2026-11-08
 

@@ -310,9 +310,11 @@ doctor_pipx() {
 # doctor_not_yours <uid> <roots…> -- <link dirs…>: the paths that don't
 # belong to <uid>, NUL-separated (a file name may hold a newline): the
 # top-most one under each root (-prune), and brew's links (into the
-# Cellar) in the link directories. A whole __pycache__ directory rather
-# than each file in it. find fails on an unreadable directory: what it
-# could read is kept, the run goes on.
+# Cellar) in the link directories, plus the links you can't read there:
+# brew cleanup stops on those ("Permission denied @ rb_readlink"), whoever
+# they point to. A whole __pycache__ directory rather than each file in
+# it. find fails on an unreadable directory: what it could read is kept,
+# the run goes on.
 doctor_not_yours() {
     local uid=$1 p target
     local -a roots=() links=()
@@ -330,8 +332,9 @@ doctor_not_yours() {
         if ((${#links[@]} > 0)); then
             find "${links[@]}" -type l ! -user "${uid}" -print0 2>/dev/null || true
         fi | while IFS= read -r -d '' p; do
-            target=$(readlink "${p}" 2>/dev/null || true)
-            [[ "${target}" != *Cellar/* ]] || printf '%s\0' "${p}"
+            if ! target=$(readlink "${p}" 2>/dev/null) || [[ "${target}" == *Cellar/* ]]; then
+                printf '%s\0' "${p}"
+            fi
         done
     } | while IFS= read -r -d '' p; do
         [[ "${p}" != */__pycache__/* ]] || p="${p%/__pycache__/*}/__pycache__"
@@ -367,6 +370,8 @@ doctor_brew_ownership() {
         fi
         if [[ "${p}" == */__pycache__ ]]; then
             fix+=("sudo rm -rf $(shq "${p}")   (Python bytecode cache, rebuilt when needed)")
+        elif [[ -L "${p}" ]] && ! readlink "${p}" >/dev/null 2>&1; then
+            fix+=("sudo chmod -h 755 $(shq "${p}")   (a link only its owner can read; it stays theirs)")
         else
             fix+=("ls -la $(shq "${p}")   then, if it's Homebrew's:   sudo chown -R $(shq "${user}") $(shq "${p}")")
         fi
