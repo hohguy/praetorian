@@ -352,10 +352,11 @@ homepage_verdict() {
 readonly PORT_PACKAGES_URL="https://packages.macports.org"
 BINARY_CHECK_TIMEOUT=10 # seconds per request (the report uses less)
 
-# port_meta <port>: "version<TAB>revision<TAB>homepage<TAB>license" (port
-# info --line), non-zero when port doesn't know the port.
+# port_meta <port>: "version<TAB>revision<TAB>homepage<TAB>license<TAB>
+# replaced_by" (port info --line; replaced_by is empty unless the port is
+# obsolete), non-zero when port doesn't know the port.
 port_meta() {
-    port_ro info --line --version --revision --homepage --license "$1" || return 1
+    port_ro info --line --version --revision --homepage --license --replaced_by "$1" || return 1
     awk -F '\t' 'NF >= 4 { line = $0 } END { if (line == "") exit 1; print line }' <<<"${PORT_LAST_OUT}"
 }
 
@@ -592,7 +593,7 @@ migration_classify() {
     fi
     [[ "${check_binaries}" != binaries ]] || BINARY_CHECK_TIMEOUT=5
 
-    local prefix f known kports cands notes bnote meta port_hp brew_hp verdict homepages
+    local prefix f known kports cands notes bnote meta port_hp brew_hp verdict homepages repl
     PLAN_LEAVES=$(brew leaves 2>>"${LOG_FILE}" || true)
     prefix=$(brew --prefix 2>/dev/null) || prefix=""
     # Homepages of the formulae with a port of the same name, one brew call.
@@ -622,7 +623,22 @@ migration_classify() {
         elif grep -qxF "${f}" <<<"${all}"; then
             brew_hp=$(awk -F '\t' -v f="${f}" '$1 == f { print $2; exit }' <<<"${homepages}")
             port_hp=""
-            if meta=$(port_meta "${f}"); then port_hp=$(cut -f3 <<<"${meta}"); fi
+            repl=""
+            if meta=$(port_meta "${f}"); then
+                port_hp=$(cut -f3 <<<"${meta}")
+                repl=$(cut -f5 <<<"${meta}")
+            fi
+            if [[ -n "${repl}" ]]; then
+                # An obsolete port: MacPorts would install its replacement.
+                bnote=""
+                if [[ "${check_binaries}" == binaries ]]; then
+                    plan_binary_note "${repl}"
+                    bnote=${PLAN_BNOTE}
+                fi
+                [[ -z "${notes}${bnote}" ]] || PLAN_HAS_NOTES=true
+                PLAN_APPROX+=("${f} → ${repl} ${C_DIM}(${f} is obsolete in MacPorts: praetorian --migrate ${f}=${repl})${C_RESET}${notes}${bnote}")
+                continue
+            fi
             verdict=$(homepage_verdict "${brew_hp}" "${port_hp}")
             if [[ "${verdict}" == mismatch ]]; then
                 [[ -z "${notes}" ]] || PLAN_HAS_NOTES=true
@@ -902,6 +918,25 @@ migrate_check_port() {
             return 0
         fi
         ok "Port ${q} available in MacPorts"
+    done
+
+    # An obsolete port (replaced_by): port install would install its
+    # replacement, and the checks after the install would look for a port
+    # that never becomes active.
+    local meta repl spec
+    for q in "${ports[@]}"; do
+        meta=$(port_meta "${q}") || continue
+        repl=$(cut -f5 <<<"${meta}")
+        [[ -n "${repl}" ]] || continue
+        spec=",${spec_ports},"
+        spec=${spec/,"${q}",/,${repl},}
+        spec=${spec#,}
+        block "${q} is obsolete in MacPorts: replaced by ${repl}" \
+            "port install ${q} would install ${repl} instead, and ${q} would never be active." \
+            "Nothing was done." \
+            "Check: port info ${repl}" \
+            "then: praetorian --migrate ${f}=${spec%,}"
+        return 0
     done
 
     # Only what brew links into the PATH: <Cellar>/<formula>/<version>/bin
