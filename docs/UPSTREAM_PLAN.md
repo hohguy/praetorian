@@ -69,6 +69,7 @@ one port per `port` call inside one sudo, without `-p`.
 | P | The progress line isn't cleared before the ✓; MacPorts' "ports you installed have notes" isn't shown | Issue | planned |
 | S | The report flags the same project under an old and a new homepage address | Issue | planned |
 | T | A migration doesn't look at `~/.gitconfig`: a credential helper (or `gpg.program`, `core.editor`) naming the Homebrew path breaks once the formula moves (`gh` → `git push` over HTTPS fails) | Issue | planned |
+| U | Disk use during a long formula upgrade: free space is checked only at the start and `brew cleanup` runs only at the end (suggest `brew cleanup <formula>` after each upgrade, a free-space check before each formula, and on low space: stop, skip the casks, still clean up) | Issue (feature request) | planned, after round 2 |
 
 Items G to L are features that may not fit a project that is "small on
 purpose". They are written up as suggestions, not requests.
