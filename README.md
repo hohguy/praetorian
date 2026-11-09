@@ -289,7 +289,7 @@ During the transition both run side by side (`/opt/local` and `/usr/local` don't
 | 3 | `homebrew.mxcl.<formula>.plist` | it runs as a Homebrew service |
 | 4 | `~/.zshrc`, `~/.zprofile`, `~/.bash_profile`… | a line uses `<prefix>/opt/<formula>` or `Cellar/<formula>/` (it would point to nothing). Commented lines are ignored |
 | 5 | [known traps](#known-traps) | no `=<port>` was given for a formula of that table |
-| 6 | `port info --name <port>`, for each port | a port doesn't exist |
+| 6 | `port info --name <port>`, for each port | a port doesn't exist, or is obsolete (`replaced_by`: `port install` would install its replacement instead). The block gives the spec with the replacement |
 | 7 | [homepages](#same-project-same-homepage) | they differ and the port was only guessed from the name (a warning with `=<port>`) |
 | 8 | [`packages.macports.org`](#a-binary-for-this-mac) | no precompiled archive for this Mac (unless `--allow-build`). Skipped for ports already active |
 | 9 | `sudo port -N install <port>`, for each port | sudo is impossible (unattended), `port` can't be trusted with root (see [Security](#security-how-sudo-is-handled)), the install fails or sudo is refused. A port already active is not reinstalled: `sudo port setrequested <port>` marks it as wanted, so `port uninstall leaves` won't remove it |
