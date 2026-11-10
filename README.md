@@ -139,7 +139,7 @@ MacPorts also needs Xcode or at least the Command Line Tools, even though it mos
 | `tar` | Archiving Homebrew and MacPorts build logs before cleanup |
 | `df` | Free disk space check |
 | `date`, `sleep`, `uname`, `sw_vers` | Timestamps, progress line, Intel detection, macOS version in the log |
-| `pgrep`, `kill` | Stopping the whole process tree on Ctrl-C; checking the PID in the lock |
+| `pgrep`, `kill`, `ps` | Stopping the whole process tree on Ctrl-C; checking that the PID in the lock is a running praetorian |
 | `caffeinate` | Keeping the Mac awake during a session |
 | `xcode-select`, `xcodebuild` | Xcode readiness check; Metal Toolchain download |
 | `curl` | Unattended: waiting for the network (a HEAD request to `github.com`); `--migrate`: is there a precompiled MacPorts binary (HEAD requests to `packages.macports.org`, nothing downloaded) |
@@ -158,7 +158,7 @@ The disk needs at least 5 GB free (20 GB recommended); below that, praetorian st
 
 ### Optional: Touch ID for sudo
 
-`praetorian-sudo-setup` (run once with sudo) uses `bioutil` to check that a fingerprint is enrolled, and `cp`, `sed`, `awk`, `chmod` and `chown` to write `/etc/pam.d/sudo_local`. It needs a Mac with Touch ID; without one, sudo simply asks for the password.
+`praetorian-sudo-setup` (run once with sudo) uses `bioutil` to check that a fingerprint is enrolled, and `cp`, `sed`, `awk`, `chmod` and `chown` to write `/etc/pam.d/sudo_local`: macOS's own, since as root it sets its `PATH` to `/usr/bin:/bin:/usr/sbin:/sbin`. It needs a Mac with Touch ID; without one, sudo simply asks for the password.
 
 ### Optional: overnight runs
 
@@ -390,6 +390,7 @@ praetorian never stops silently. Every block prints the same five parts, even wi
 | Unattended and still no network after 5 minutes (`github.com` doesn't answer) | whole session (exit 1), before the lock; with `--dry-run`, a warning | `brew update` fails and every download retries for nothing ([decision 23](#23-wait-for-the-network-before-starting)) |
 | Another praetorian session running | whole session (exit 1) | two brew/port runs on the same packages corrupt them. See [the session lock](#the-session-lock) for how a lock left by a crashed session is taken over |
 | `PRAETORIAN_HOME` not an absolute path, or containing a newline | whole session (exit 1), before anything is written | a relative path would follow the current directory |
+| `PRAETORIAN_HOME` not a directory, not writable or impossible to create, another user's, or writable by everyone | whole session (exit 1), before anything is written | the logs, the lock and the quarantine couldn't be written, or someone else could redirect them through a link |
 | MacPorts not responding / installed for another macOS | MacPorts part | ports may be broken until reinstalled |
 | `port` (or a directory above it) not owned by root or writable by others | MacPorts part, `--migrate` | it would run as root |
 | `port selfupdate` failed | MacPorts upgrade | half-synced ports tree |
@@ -445,7 +446,7 @@ An unattended session waited 5 minutes for `github.com` to answer, then stopped 
 
 ### "another praetorian session is already running"
 
-Check the PID it gives (`ps -p <pid> -o command=`). If it isn't praetorian (a PID reused after a crash), remove `.lock` in `PRAETORIAN_HOME` (`rm -rf ~/praetorian/.lock` with the default).
+Another session holds the lock: wait for it, or stop it (`kill <pid>`). A lock left by a session that died is taken over on its own, also when its PID was reused since by another program (praetorian reads that PID's command with `ps`). To check by hand: `ps -p <pid> -o command=`; if it isn't a praetorian session, remove `.lock` in `PRAETORIAN_HOME` (`rm -rf ~/praetorian/.lock` with the default).
 
 "couldn't take the session lock" means another session started at the same moment (or a lock with no PID yet is less than a minute old): wait a moment and run again.
 
@@ -481,7 +482,7 @@ Run `praetorian-schedule status`: it says whether the job is loaded, turned off 
 - The Mac was shut down at that time: the job only runs on a Mac that is on (asleep is fine). See [Scheduling](#scheduling-overnight-runs) to wake it up first.
 - "is on Battery Power (--ac-power-only)" in the log or the notification: the Mac wasn't plugged in.
 - "no network (github.com unreachable…)": see [above](#no-network-githubcom-unreachable-after-300-s).
-- Something printed before the session log existed (for example the `lib/` check) is in `PRAETORIAN_HOME/logs/launchd.stderr.log`; `status` shows its last lines.
+- Something printed before the session log existed (for example the `lib/` check) is in `PRAETORIAN_HOME/logs/launchd.stderr.log`; `status` shows its last lines. Past 1 MB, a session cuts it to its last 500 lines.
 - `install` failed with "Input/output error": run `praetorian-schedule uninstall`, then `install` again, from your own session at the Mac (not over SSH).
 
 ### Touch ID doesn't show up for sudo
@@ -589,7 +590,7 @@ On exit, praetorian removes `.lock/` only if it still holds its own PID. A maint
 
 | Variable | Effect |
 |---|---|
-| `PRAETORIAN_HOME` | State directory: logs, quarantine, lock, `.toolchain`, `migrated.tsv` (default `~/praetorian`). Must be an absolute path without a newline, otherwise praetorian stops with exit code 1 before writing anything. Set it in the environment that starts praetorian (shell profile, `launchd` job). |
+| `PRAETORIAN_HOME` | State directory: logs, quarantine, lock, `.toolchain`, `migrated.tsv` (default `~/praetorian`). Must be an absolute path without a newline, to a directory of yours that isn't writable by everyone (or one praetorian can create), otherwise praetorian stops with exit code 1 before writing anything. Set it in the environment that starts praetorian (shell profile, `launchd` job). |
 | `PRAETORIAN_NOTIFY_AFTER` | From a terminal, the notification is sent only when the session took at least this many seconds (default `300`; `0` = always). Digits only: anything else is ignored (default used). Unattended sessions always notify; `--notify` / `--no-notify` override it. |
 | `HOMEBREW_DEVELOPER` | When set, praetorian leaves Homebrew on its development branch instead of switching back to stable ([decision 13](#13-stay-on-homebrews-stable-channel)). |
 | `PRAETORIAN_NETWORK_WAIT` | Unattended only: how many seconds to wait for `github.com` to answer before blocking (default `300`; `0` = check once). Digits only: anything else gives a warning and the default. From a terminal there is no wait. |
@@ -667,7 +668,7 @@ The script re-executes itself under `caffeinate -i`.
 
 ### 8. Ctrl-C stops everything, cleanly
 
-brew runs in the background (see the next point), and `SIGINT`/`SIGTERM` are trapped: the trap kills the whole process tree of the current command, prints where the log is, and exits with code 130. An exit trap removes temp files and relinks any formula that was unlinked.
+brew runs in the background (see the next point), and `SIGINT`/`SIGTERM`/`SIGHUP` (the terminal closed) are trapped: the trap kills the whole process tree of the current command, prints where the log is, and exits with code 130. An exit trap removes temp files and relinks any formula that was unlinked.
 
 *Why:* in the first version, Ctrl-C killed only the current step; every following step then failed instantly with code 130, which made a clean run look like a cascade of failures. And with no job control, a background child ignores `SIGINT`, so it must be killed explicitly.
 
