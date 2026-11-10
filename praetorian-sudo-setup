@@ -137,7 +137,11 @@ fingerprints() {
         bioutil -c
     fi
 }
-if ! fingerprints 2>/dev/null | grep -qE '[1-9][0-9]* biometric template'; then
+# Read in full before the search: with "fingerprints | grep -q" under
+# pipefail, grep leaves at the first match, bioutil can die of SIGPIPE on
+# its next line, and the pipeline then fails with a fingerprint enrolled.
+enrolled=$(fingerprints 2>/dev/null || true)
+if ! grep -qE '[1-9][0-9]* biometric template' <<<"${enrolled}"; then
     echo "No fingerprint enrolled for ${SUDO_USER:-this user} (System Settings > Touch ID)." >&2
     exit 1
 fi
