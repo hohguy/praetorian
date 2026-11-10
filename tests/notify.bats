@@ -28,6 +28,23 @@ setup() {
     PRAETORIAN="${BATS_TEST_DIRNAME}/../praetorian"
 }
 
+# A running praetorian session, for the lock: a process whose command
+# line names praetorian (a plain "sleep" in the lock is a reused PID, see
+# lock_holder_alive). Sets SESSION_PID; stop it with kill.
+fake_session() {
+    local dir="${BATS_TEST_TMPDIR}/holder"
+    mkdir -p "${dir}"
+    cat >"${dir}/praetorian" <<'HOLDER'
+#!/usr/bin/env bash
+sleep 60 &
+trap 'kill $!; exit 0' TERM
+wait
+HOLDER
+    chmod 755 "${dir}/praetorian"
+    "${dir}/praetorian" &
+    SESSION_PID=$!
+}
+
 # The fake osascript writes one argument per line: the AppleScript lines
 # ("-e" and its text), then message, subtitle and sound when there's one.
 # notification_args: just the arguments after "end run".
@@ -74,8 +91,8 @@ notification_args() {
 
 @test "notify: blocked before the summary (lock) → 'Stopped' notification naming the block" {
     mkdir -p "${HOME}/praetorian/.lock"
-    sleep 60 &
-    local pid=$!
+    fake_session
+    local pid=${SESSION_PID}
     echo "${pid}" >"${HOME}/praetorian/.lock/pid"
     run "${PRAETORIAN}"
     kill "${pid}"
@@ -89,8 +106,8 @@ notification_args() {
 
 @test "notify: --no-notify also silences the 'Stopped' notification" {
     mkdir -p "${HOME}/praetorian/.lock"
-    sleep 60 &
-    local pid=$!
+    fake_session
+    local pid=${SESSION_PID}
     echo "${pid}" >"${HOME}/praetorian/.lock/pid"
     run "${PRAETORIAN}" --no-notify
     kill "${pid}"
