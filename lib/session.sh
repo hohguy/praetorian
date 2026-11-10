@@ -52,7 +52,9 @@ on_interrupt() {
     loud "Session log: ${C_DIM}${LOG_FILE}${C_RESET}"
     finish 130
 }
-trap on_interrupt INT TERM
+# HUP too (terminal closed): otherwise bash dies without killing the
+# running step, and the exit is reported as an unexpected error.
+trap on_interrupt INT TERM HUP
 
 STEP_TMP=""
 SESSION_STAMP="" # stamp file: its mtime = session start
@@ -525,6 +527,8 @@ check_network() {
 # Races handled:
 #   - the PID is written to a temporary file then renamed (atomic): a
 #     reader never sees a half-written PID;
+#   - a PID that is running but isn't praetorian (reused after a crash)
+#     is a stale lock (see lock_holder_alive);
 #   - a lock with no PID yet is a session that is just starting, unless
 #     the directory is older than a minute (session killed between mkdir
 #     and the PID write);
@@ -539,6 +543,21 @@ lock_pid() {
     cat "$1/pid" 2>/dev/null || true
 }
 
+# lock_holder_alive <pid>: the PID in the lock is a running praetorian.
+# A process that exists isn't enough: after a crash or a power cut, the
+# PID can be reused by another of your programs, and every later session
+# (the nightly ones too) would stay blocked by it. So the command of that
+# PID must name praetorian. When ps can't say (no ps, or one without -p
+# as in BusyBox), the process counts as praetorian: blocking wrongly is
+# safer than two sessions at once.
+lock_holder_alive() {
+    local pid=$1 cmd
+    kill -0 "${pid}" 2>/dev/null || return 1
+    cmd=$(ps -ww -p "${pid}" -o command= 2>/dev/null) || return 0
+    [[ -n "${cmd}" ]] || return 0
+    grep -qE '(^|[/ ])praetorian( |$)' <<<"${cmd}"
+}
+
 # lock_is_recent <dir>: modified less than LOCK_STALE_AGE_MIN minutes ago.
 lock_is_recent() {
     [[ -n "$(find "$1" -maxdepth 0 -mmin "-${LOCK_STALE_AGE_MIN}" 2>/dev/null)" ]]
@@ -551,7 +570,7 @@ lock_busy() {
         "This session did nothing." \
         "Wait for the other session to finish:  ps -p ${pid} -o command=" \
         "or stop it cleanly:                    kill ${pid}" \
-        "If this PID is NOT praetorian (PID reused): rm -rf ${LOCK_DIR}"
+        "If this PID is NOT a praetorian session:  rm -rf ${LOCK_DIR}"
     finish 1
 }
 
@@ -568,7 +587,7 @@ acquire_lock() {
     if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
         local pid stale="${LOCK_DIR}.stale.$$"
         pid=$(lock_pid "${LOCK_DIR}")
-        if [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then
+        if [[ "${pid}" =~ ^[0-9]+$ ]] && lock_holder_alive "${pid}"; then
             lock_busy "${pid}"
         fi
         if [[ -z "${pid}" ]] && lock_is_recent "${LOCK_DIR}"; then
@@ -586,7 +605,7 @@ acquire_lock() {
             lock_lost_race "${LOCK_DIR} was taken over in the meantime: another session has probably just started."
         fi
         rm -rf "${stale}"
-        warn "Lock left by a session that ended abruptly (PID ${pid:-unknown}, no longer running): taken over."
+        warn "Lock left by a session that ended abruptly (PID ${pid:-unknown}, no longer running or reused by another program): taken over."
         if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
             lock_lost_race "${LOCK_DIR} was created again in the meantime: another session has probably just started."
         fi
@@ -622,6 +641,30 @@ rotate_logs() {
     for pattern in 'praetorian_*[0-9].log' 'praetorian_*_buildlogs.tar.gz' 'praetorian_*_portlogs.tar.gz'; do
         rotate_pattern "${pattern}"
     done
+    trim_launchd_stderr
+}
+
+# launchd's stderr file (praetorian-schedule): launchd only ever appends
+# to it, every block of every night. Past LAUNCHD_STDERR_MAX bytes, only
+# its last LAUNCHD_STDERR_KEEP lines are kept. Rewritten in place, not
+# replaced: launchd keeps the file open while a scheduled session runs.
+readonly LAUNCHD_STDERR_MAX=1048576
+readonly LAUNCHD_STDERR_KEEP=500
+trim_launchd_stderr() {
+    local f="${LOG_DIR}/launchd.stderr.log" size kept
+    [[ -f "${f}" && ! -L "${f}" ]] || return 0
+    size=$(wc -c <"${f}" | tr -d ' ')
+    [[ "${size}" =~ ^[0-9]+$ ]] || return 0
+    ((size > LAUNCHD_STDERR_MAX)) || return 0
+    if [[ "${DRY_RUN}" == true ]]; then
+        log_detail "ROTATION (dry-run): ${f} (${size} bytes) would be cut to its last ${LAUNCHD_STDERR_KEEP} lines"
+        return 0
+    fi
+    kept=$(mktemp -t praetorian_stderr) || return 0
+    if tail -n "${LAUNCHD_STDERR_KEEP}" "${f}" >"${kept}" 2>/dev/null && cat "${kept}" >"${f}" 2>/dev/null; then
+        log_detail "Log cut to its last ${LAUNCHD_STDERR_KEEP} lines: ${f} (was ${size} bytes)"
+    fi
+    rm -f "${kept}"
 }
 
 # rotate_candidates <pattern>: the files to remove, one per line. Sorted
