@@ -133,7 +133,8 @@ MacPorts also needs Xcode or at least the Command Line Tools, even though it mos
 | Tool | Used for |
 |---|---|
 | `bash` | Runs the script. macOS's own `/bin/bash` 3.2 is enough: the code avoids associative arrays, `mapfile` and negative array indices. A newer bash from Homebrew or MacPorts works too |
-| `awk`, `sed`, `grep`, `cut`, `tr`, `sort`, `comm`, `wc`, `head`, `tail`, `cmp`, `xargs` | Parsing brew and port output, the quarantine file and shell startup files |
+| `awk`, `sed`, `grep`, `cut`, `tr`, `sort`, `comm`, `wc`, `head`, `tail`, `cmp`, `xargs` | Parsing brew and port output, the quarantine file, shell startup files and other settings |
+| `crontab` | Read-only (`crontab -l`): lines that name a Homebrew path |
 | `find`, `ls`, `cat`, `cp`, `mkdir`, `rm`, `mv`, `basename`, `dirname`, `readlink`, `mktemp` | Logs, temp files, lock, Caskroom repair and backup, spotting commands installed twice, finding `lib/` through symbolic links, ownership checks of `port` |
 | `id` | Owner check of the `lib/` files before they're loaded |
 | `tar` | Archiving Homebrew and MacPorts build logs before cleanup |
@@ -195,7 +196,7 @@ The same tests also run **on macOS under `/bin/bash` 3.2** with `ci/macos-tests`
 | `--migrate-all` | Migrates every formula of the report's "Same name" group whose MacPorts port has the same homepage and that has no `[ ]` note, leaves first. A blocked one is skipped; the summary lists each formula. |
 | `--allow-build` | Lets `--migrate` install a port that has no precompiled binary for this Mac (MacPorts then compiles it from source: hours, maybe a failure). |
 | `--status` | Read-only summary of the real state, checked against brew and port rather than the logs: the formulae in `migrated.tsv` (flagged when the formula is still installed, or a port is missing or not marked requested), the formulae still installed on request and why (quarantined, a same-name port to migrate to, the exact spec for a [known trap](#known-traps), likely port names, no port found), leftover dependencies (`brew leaves` nobody asked for: it points to `praetorian --dry-run --prune`, never to `port uninstall leaves`, which could remove migrated ports still marked as dependencies), cask / formula / port counts, and the last 10 sessions from their logs, one line each (date, mode, migration target, outcome, duration). No sudo, no lock. |
-| `--doctor` | Read-only health check. Lists what breaks around Homebrew and MacPorts without either noticing, each with the command that fixes it: broken pipx environments (or ones still on a Homebrew Python), files in the Homebrew prefix that `brew cleanup` can't remove because they aren't yours, dead `PATH` entries (with the shell file and line), broken JDK links, empty Cellar directories, npm global packages left without `node` (a node not from Homebrew, such as the nodejs.org installer in `/usr/local`, keeps its packages), migrated ports MacPorts could remove by mistake, casks from an untrusted tap, stale Command Line Tools headers. Each check is skipped when its tool isn't there. Every name in a printed command is shell-quoted, so pasting a fix can't run anything else. Changes nothing, never runs sudo, takes no lock. See [Troubleshooting](#something-broke-after-a-migration-or-brew-cleanup-fails-every-night). |
+| `--doctor` | Read-only health check. Lists what breaks around Homebrew and MacPorts without either noticing, each with the command that fixes it: broken pipx environments (or ones still on a Homebrew Python), files in the Homebrew prefix that `brew cleanup` can't remove because they aren't yours, dead `PATH` entries (with the shell file and line), broken JDK links, empty Cellar directories, npm global packages left without `node` (a node not from Homebrew, such as the nodejs.org installer in `/usr/local`, keeps its packages), migrated ports MacPorts could remove by mistake, casks from an untrusted tap, stale Command Line Tools headers, and settings that still name a Homebrew path that is gone (see [Settings that name a Homebrew path](#settings-that-name-a-homebrew-path)). Each check is skipped when its tool isn't there. Every name in a printed command is shell-quoted, so pasting a fix can't run anything else. Changes nothing, never runs sudo, takes no lock. See [Troubleshooting](#something-broke-after-a-migration-or-brew-cleanup-fails-every-night). |
 | `--prune` | Removes the Homebrew dependencies nothing uses any more, which `brew autoremove` misses ([decision 26](#26-prune-what-brew-autoremove-misses)). Shows each round and asks before removing it (default: no); removing one round can free the next, up to 10 rounds. With `--dry-run`, only lists the first round. Unattended, removes nothing (listed as deferred). Never removes a formula you installed yourself, or one a pipx environment, npm package, Homebrew service or shell startup file still uses. MacPorts' unused dependencies are only reported, with the command to remove them. |
 | `--sbom` | Writes a CycloneDX 1.6 SBOM of the installed software to `logs/sbom_<timestamp>.cdx.json`: Homebrew formulae and casks, active MacPorts ports (with their variants), apps in `/Applications` and `~/Applications`, pipx environments (`PIPX_HOME` honoured) and npm global packages; a missing tool is skipped and said so. Then lists what was added, removed or changed since the previous SBOM (15 names per list on screen, all of them in the log). The JSON is built with Python (`/usr/bin/python3` once the Command Line Tools or Xcode are there, otherwise a `python3` from the `PATH`); without one, praetorian blocks and says what to install. If `trivy` is installed, its HIGH and CRITICAL findings are summarized: it only knows the pypi and npm packages, so a clean result says nothing about the Homebrew and MacPorts ones. On first use trivy downloads its vulnerability database from an external registry and keeps it in `~/.cache/trivy` (trivy's own behaviour). Read-only, no lock ([decision 27](#27-an-sbom-written-by-a-json-library)). |
 | `--help`, `-h` | Usage. |
@@ -266,7 +267,7 @@ During the transition both run side by side (`/opt/local` and `/usr/local` don't
 
 ### Migrating, one formula at a time
 
-1. `praetorian --migration-report` sorts the formulae you installed yourself (`brew leaves`) into groups: same name in MacPorts, same name but maybe a different project (the homepages differ, see [below](#same-project-same-homepage)), probable other name, and not found. [Known traps](#known-traps) come first, with the exact spec to use. It flags what would block a migration: a running `brew services` service, shell startup files pointing into the formula's Homebrew paths, or `[no binary for this Mac]`. The "Same name" group says how many formulae `--migrate-all` would take. Dependencies aren't listed: once nothing uses them, `--prune` removes them (`brew autoremove` misses many, see [decision 26](#26-prune-what-brew-autoremove-misses)).
+1. `praetorian --migration-report` sorts the formulae you installed yourself (`brew leaves`) into groups: same name in MacPorts, same name but maybe a different project (the homepages differ, see [below](#same-project-same-homepage)), probable other name, and not found. [Known traps](#known-traps) come first, with the exact spec to use. It flags what would block a migration: a running `brew services` service, shell startup files pointing into the formula's Homebrew paths, or `[no binary for this Mac]`. A formula whose Homebrew paths are named by other settings gets `(settings name it: ~/.gitconfig, …)`, which doesn't block (see [below](#settings-that-name-a-homebrew-path)). The "Same name" group says how many formulae `--migrate-all` would take. Dependencies aren't listed: once nothing uses them, `--prune` removes them (`brew autoremove` misses many, see [decision 26](#26-prune-what-brew-autoremove-misses)).
 
    For formulae that aren't known traps, the "probable other name" guesses, most likely first:
 
@@ -288,6 +289,7 @@ During the transition both run side by side (`/opt/local` and `/usr/local` don't
 | 2 | `brew uses --installed` | another formula depends on it (one migrated earlier in the same session doesn't count) |
 | 3 | `homebrew.mxcl.<formula>.plist` | it runs as a Homebrew service |
 | 4 | `~/.zshrc`, `~/.zprofile`, `~/.bash_profile`… | a line uses `<prefix>/opt/<formula>` or `Cellar/<formula>/` (it would point to nothing). Commented lines are ignored |
+| | [other settings](#settings-that-name-a-homebrew-path) that name the formula's paths | never: a warning with the files and lines, listed again after step 12 with the MacPorts path |
 | 5 | [known traps](#known-traps) | no `=<port>` was given for a formula of that table |
 | 6 | `port info --name <port>`, for each port | a port doesn't exist, or is obsolete (`replaced_by`: `port install` would install its replacement instead). The block gives the spec with the replacement |
 | 7 | [homepages](#same-project-same-homepage) | they differ and the port was only guessed from the name (a warning with `=<port>`) |
@@ -300,6 +302,24 @@ During the transition both run side by side (`/opt/local` and `/usr/local` don't
 A successful migration is recorded in `migrated.tsv` (every port of the spec, comma-separated). The order is deliberate: at every point before step 12, the Homebrew version is untouched and still works. If step 10 or 11 fails, both are installed, which is harmless. With `--dry-run`, steps 1 to 8 and 11 run, and the install and uninstall are only listed.
 
 3. Start with the formulae that hurt the most (long builds, quarantined), check your tools after each migration, and stop when only casks are left: Homebrew then has nothing to compile. Small, standalone tools (`wget`, `jq`, `tree`…) make good first migrations, and `--dry-run --migrate-all` shows which formulae can go in one batch; formulae referenced in your shell files come later, once those lines are updated.
+
+#### Settings that name a Homebrew path
+
+The shell startup files aren't the only place a command is named by its full path. `gh auth setup-git` writes `!/usr/local/bin/gh auth git-credential` into `~/.gitconfig`; an editor keeps the path of its Python interpreter or of `git`; a launch agent or a crontab line starts a Homebrew command. Once the formula is uninstalled, each of them points to nothing, and nothing says so until it's used.
+
+Those places can't all be listed, so praetorian searches the likely ones, read-only, for the formula's paths: `<prefix>/opt/<formula>`, `<prefix>/Cellar/<formula>/`, and its commands as `<prefix>/bin/<command>` (or `sbin`), found through brew's own links.
+
+| Searched | Skipped |
+|---|---|
+| dotfiles in your home directory; `~/.config`, `~/.ssh`, `~/.gnupg`; `~/Library/Application Support`, `~/Library/Preferences`, `~/Library/LaunchAgents`; `/Library/LaunchAgents`, `/Library/LaunchDaemons`; your crontab | anything that isn't a configuration file under 1 MB (`json`, `ini`, `conf`, `plist`, `toml`, `yml`, `cfg`, `config`, `*rc`, dotfiles); cache, log, session, extension, history and backup folders; backup copies (`*.bak`, `*.orig`, `.zprofile.before-…`); the folders macOS protects (`com.apple.*`, Contacts, call history); commented lines; `homebrew.mxcl.*` (step 3) |
+
+It takes well under a second to a few seconds, and it can't prove that nothing is left, so what it finds never blocks:
+
+- `--migration-report` adds `(settings name it: <files>)` to the formula's line; it stays in `--migrate-all`'s list;
+- `--migrate` warns with each file and line before the install, and lists them again after the uninstall with the MacPorts command of the same name (`/usr/local/bin/gh → /opt/local/bin/gh`); a batch repeats them in its summary;
+- `--doctor` reports the settings whose path is already gone. A dead `opt/` or `Cellar/` path was Homebrew's for sure; a dead `<prefix>/bin/<command>` only counts when MacPorts has that command (on Intel the prefix is `/usr/local`, where other installers put commands too): the others are only written to the log.
+
+praetorian never edits these files: a binary plist belongs to its app, change the path in the app's settings.
 
 #### Known traps
 
