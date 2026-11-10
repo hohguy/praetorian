@@ -237,8 +237,18 @@ EOF
     run "${PRAETORIAN}" --no-greedy
     [ "${status}" -eq 0 ]
     [ "$(wc -l <"${CAFFEINATE_CALLS}" | tr -d ' ')" -eq 1 ]
-    [ "$(cat "${CAFFEINATE_CALLS}")" = "-i ${PRAETORIAN} --no-greedy" ]
+    # praetorian's real path (links and ".." resolved), not "$0".
+    [ "$(cat "${CAFFEINATE_CALLS}")" = "-i $(cd -P "${BATS_TEST_DIRNAME}/.." && pwd)/praetorian --no-greedy" ]
     grep -qx 'upgrade --cask bar' "${BREW_CALLS}"
+    [ "$(grep -cx 'update' "${BREW_CALLS}")" -eq 1 ]
+}
+
+@test "caffeinate: started as \"bash praetorian\" (no / in \$0), still run by its full path" {
+    with_fake_caffeinate
+    cd "${BATS_TEST_DIRNAME}/.."
+    run bash praetorian --no-greedy
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${CAFFEINATE_CALLS}")" = "-i $(pwd -P)/praetorian --no-greedy" ]
     [ "$(grep -cx 'update' "${BREW_CALLS}")" -eq 1 ]
 }
 
@@ -282,6 +292,29 @@ EOF
     [ "${status}" -eq 1 ]
     # Interrupted on purpose: no "Stopped" notification.
     [ ! -s "${OSASCRIPT_CALLS}" ]
+}
+
+@test "SIGHUP during a step (terminal closed): stopped like Ctrl-C, step killed, lock released" {
+    export PRAETORIAN_CAFFEINATED=1
+    export BREW_HANG_ON=update
+    local out="${BATS_TEST_TMPDIR}/out" i rc=0 brew_pid child_pid
+    "${PRAETORIAN}" >"${out}" 2>&1 </dev/null &
+    PRAETORIAN_PID=$!
+    for ((i = 0; i < 100; i++)); do
+        [[ -s "${BREW_CALLS}.hang" ]] && break
+        sleep 0.2
+    done
+    [ -s "${BREW_CALLS}.hang" ]
+    read -r brew_pid child_pid <"${BREW_CALLS}.hang"
+    kill -HUP "${PRAETORIAN_PID}"
+    wait "${PRAETORIAN_PID}" || rc=$?
+    cat "${out}"
+    [ "${rc}" -eq 130 ]
+    run grep -q 'unexpected error' "${out}"
+    [ "${status}" -eq 1 ]
+    [ ! -e "${HOME}/praetorian/.lock" ]
+    process_gone "${brew_pid}"
+    process_gone "${child_pid}"
 }
 
 # --- Output analysis and reports ---------------------------------------------------
