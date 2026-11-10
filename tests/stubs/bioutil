@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 #
 # Fake bioutil for the praetorian-sudo-setup tests: "bioutil -c" reports
-# $BIOUTIL_TEMPLATES enrolled fingerprints (default 1).
+# $BIOUTIL_TEMPLATES enrolled fingerprints (default 1). BIOUTIL_SLOW_TAIL
+# non-empty: the last line comes after a pause, in a second write (a
+# reader that left at the first line makes that write fail with SIGPIPE).
 #
 if [[ "${1:-}" == -c ]]; then
     printf 'User 501:\t%s biometric template(s)\n' "${BIOUTIL_TEMPLATES:-1}"
+    [[ -z "${BIOUTIL_SLOW_TAIL:-}" ]] || sleep 1
     echo "Operation performed successfully."
 fi
 exit 0

@@ -124,8 +124,13 @@ upgrade_formula() {
     # brew returned an error but the new version is installed (e.g.
     # "Failed to fix install linkage": brew bug at the very end of the
     # install, after the build) → success with a warning.
-    if [[ "${DRY_RUN}" != true ]] &&
-        ! brew outdated --formula --quiet "${f}" 2>/dev/null | grep -qxF "${f}"; then
+    # Only when brew outdated answered (code 0) and no longer lists it:
+    # a brew outdated that fails prints nothing either, and an upgrade
+    # that failed would be counted as done.
+    local still_outdated outdated_rc=0
+    still_outdated=$(brew outdated --formula --quiet "${f}" 2>>"${LOG_FILE}") || outdated_rc=$?
+    if [[ "${DRY_RUN}" != true ]] && ((outdated_rc == 0)) &&
+        ! grep -qxF "${f}" <<<"${still_outdated}"; then
         forget_failure "${label}"
         STEP_OK=$((STEP_OK + 1))
         warn "${f} is installed despite a brew error at the end of the install (see the log)."

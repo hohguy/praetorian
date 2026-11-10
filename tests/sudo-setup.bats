@@ -79,6 +79,13 @@ sudo_setup() {
     [ ! -e "${PAM}" ]
 }
 
+@test "sudo-setup: bioutil still writing after the fingerprint line → fingerprint seen all the same" {
+    BIOUTIL_SLOW_TAIL=1 sudo_setup
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"No fingerprint enrolled"* ]] || false
+    grep -qx 'auth       sufficient     pam_tid.so' "${PAM}"
+}
+
 @test "sudo-setup: no file → created with the pam_tid line, root:wheel 444" {
     sudo_setup
     [ "${status}" -eq 0 ]
