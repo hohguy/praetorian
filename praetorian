@@ -46,6 +46,14 @@
 #
 set -euo pipefail
 
+# HOME locates everything (state directory, shell startup files, pipx):
+# without it, "set -u" would stop on the first line that reads it, with
+# bash's own message. Plain output: nothing is loaded yet.
+if [[ "${HOME:-}" != /* ]]; then
+    echo "praetorian: HOME is not an absolute path (${HOME:-not set}): set it, then run praetorian again." >&2
+    exit 1
+fi
+
 # ----------------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------------
@@ -262,20 +270,54 @@ source "${PRAETORIAN_ROOT}/lib/status.sh"
 # shellcheck source=lib/sbom.sh
 source "${PRAETORIAN_ROOT}/lib/sbom.sh"
 
-# PRAETORIAN_HOME must be an absolute path on one line: a relative one
+# PRAETORIAN_HOME must be an absolute path on one line (a relative one
 # would follow the current directory, a newline would break the paths
-# written to the log. Plain output: block() writes to the log, which
-# lives under that very directory.
-check_home() {
-    if [[ "${PRAETORIAN_HOME}" == /* && "${PRAETORIAN_HOME}" != *$'\n'* ]]; then
+# written to the log), and a directory praetorian can keep its state in:
+# yours, or one it can create. home_problem says why it isn't, nothing
+# when it is. Nothing is created here.
+#   - belongs to another user, or writable by everyone: whoever can write
+#     there could point the log, the lock or the quarantine somewhere else
+#     through a link. A group-writable one is left alone: it holds no
+#     code, and a umask of 002 makes every new directory group-writable.
+home_problem() {
+    local p=${PRAETORIAN_HOME}
+    if [[ "${p}" != /* || "${p}" == *$'\n'* ]]; then
+        echo "PRAETORIAN_HOME must be an absolute path on a single line; got: $(printf '%q' "${p}")"
         return 0
     fi
+    if [[ -e "${p}" || -L "${p}" ]]; then
+        if [[ ! -d "${p}" ]]; then
+            echo "${p} exists but is not a directory."
+        elif [[ -n "$(find -L "${p}" -maxdepth 0 ! -user "$(id -u)" 2>/dev/null)" ]]; then
+            echo "${p} belongs to another user."
+        elif [[ -n "$(find -L "${p}" -maxdepth 0 -perm -0002 2>/dev/null)" ]]; then
+            echo "${p} is writable by everyone."
+        elif [[ ! -w "${p}" ]]; then
+            echo "${p} is not writable by you."
+        fi
+        return 0
+    fi
+    # Not there yet: praetorian creates it, in the closest directory
+    # above that exists.
+    while [[ "${p}" != / && ! -e "${p}" && ! -L "${p}" ]]; do
+        p=$(dirname "${p}")
+    done
+    [[ -d "${p}" && -w "${p}" ]] ||
+        echo "${PRAETORIAN_HOME} can't be created: ${p} is not a directory you can write to."
+}
+
+# Plain output: block() writes to the log, which lives under that very
+# directory.
+check_home() {
+    local problem
+    problem=$(home_problem)
+    [[ -n "${problem}" ]] || return 0
     {
         echo ""
         echo "${C_RED}${C_BOLD}✗ BLOCKED: PRAETORIAN_HOME is not usable${C_RESET}"
-        echo "    Why        : PRAETORIAN_HOME must be an absolute path on a single line; got: $(printf '%q' "${PRAETORIAN_HOME}")"
+        echo "    Why        : ${problem}"
         echo "    Impact     : Nothing was done: no command was run, no log was written."
-        echo "    What to do : Set an absolute path, e.g. export PRAETORIAN_HOME=\"\${HOME}/praetorian\","
+        echo "    What to do : Set an absolute path to a directory of yours, e.g. export PRAETORIAN_HOME=\"\${HOME}/praetorian\","
         echo "                 or unset it to use the default (~/praetorian)."
         echo ""
     } >&2
@@ -448,7 +490,10 @@ main() {
         [[ "${MODE}" != report && "${MODE}" != status && "${MODE}" != doctor && "${MODE}" != sbom ]] &&
         command -v caffeinate >/dev/null 2>&1; then
         export PRAETORIAN_CAFFEINATED=1
-        exec caffeinate -i "$0" "$@"
+        # Not "$0": started as "bash praetorian", it has no "/" and
+        # caffeinate would look for it in the PATH (not found, or another
+        # praetorian).
+        exec caffeinate -i "${PRAETORIAN_ROOT}/praetorian" "$@"
     fi
 
     # No terminal (launchd, cron, pipe): nobody to type a password, switch
