@@ -40,7 +40,7 @@ Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| I | An obsolete MacPorts port (`replaced_by`, e.g. `docbook-xsl` → `docbook-xsl-nons`) is taken as is: "no binary" block, listed under "Same name" | Issue + PR | posted: [#18](https://github.com/victor-sys-admin/praetorian/issues/18), PR [#19](https://github.com/victor-sys-admin/praetorian/pull/19) |
+| I | An obsolete MacPorts port (`replaced_by`, e.g. `docbook-xsl` → `docbook-xsl-nons`) is taken as is: "no binary" block, listed under "Same name" | Issue + PR | merged: [#18](https://github.com/victor-sys-admin/praetorian/issues/18), PR [#19](https://github.com/victor-sys-admin/praetorian/pull/19) |
 | T | Settings outside the shell startup files (Git credential helper, app settings, launch daemons) can name the formula's Homebrew path; proposed: a filtered read-only search in `--migration-report` and `--doctor` | Issue (PR offered) | posted: [#20](https://github.com/victor-sys-admin/praetorian/issues/20) |
 
 ### Round 4
@@ -77,7 +77,7 @@ one port per `port` call inside one sudo, without `-p`.
 | U | Disk use during a long formula upgrade: free space is checked only at the start and `brew cleanup` runs only at the end (suggest `brew cleanup <formula>` after each upgrade, a free-space check before each formula, and on low space: stop, skip the casks, still clean up) | Issue (feature request) | planned, after round 2 |
 | V | CONTRIBUTING step 4 says to add the CHANGELOG line to "the top entry (the version being prepared)", but each release removes `## Unreleased` and the maintainer recreates it by hand (#14, #17) | Issue (question: say "under `## Unreleased`, create it if missing"?) | planned |
 | W | `ci/macos-tests tests/<file>.bats` runs the file twice (the script always adds `tests`), and the copies collide ("File exists", "setup_file failed"); fix: add `tests` only when no file or folder is given | Issue + PR | planned |
-| I2 | The report doesn't check guessed port names (`node` → `nodejs22`) for `replaced_by`; `--migrate` does | Offered in PR #19 | pending #19 |
+| I2 | The report doesn't check guessed port names (`node` → `nodejs22`) for `replaced_by`; `--migrate` does | Offered in PR #19 (merged without a reply to the offer) | planned |
 
 Items G to L are features that may not fit a project that is "small on
 purpose". They are written up as suggestions, not requests.
