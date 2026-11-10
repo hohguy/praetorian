@@ -41,7 +41,7 @@ Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 | Item | Change | Kind | Status |
 |---|---|---|---|
 | I | An obsolete MacPorts port (`replaced_by`, e.g. `docbook-xsl` → `docbook-xsl-nons`) is taken as is: "no binary" block, listed under "Same name" | Issue + PR | merged: [#18](https://github.com/victor-sys-admin/praetorian/issues/18), PR [#19](https://github.com/victor-sys-admin/praetorian/pull/19) |
-| T | Settings outside the shell startup files (Git credential helper, app settings, launch daemons) can name the formula's Homebrew path; proposed: a filtered read-only search in `--migration-report` and `--doctor` | Issue (PR offered) | posted: [#20](https://github.com/victor-sys-admin/praetorian/issues/20) |
+| T | Settings outside the shell startup files (Git credential helper, app settings, launch daemons) can name the formula's Homebrew path; proposed: a filtered read-only search in `--migration-report` and `--doctor` | Issue (PR offered) | posted: [#20](https://github.com/victor-sys-admin/praetorian/issues/20); the maintainer is building it himself in PR [#22](https://github.com/victor-sys-admin/praetorian/pull/22) |
 
 ### Round 4
 
