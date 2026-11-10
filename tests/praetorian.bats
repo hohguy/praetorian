@@ -28,6 +28,23 @@ setup() {
     LOGS="${HOME}/praetorian/logs"
 }
 
+# A running praetorian session, for the lock: a process whose command
+# line names praetorian (a plain "sleep" in the lock is a reused PID, see
+# lock_holder_alive). Sets SESSION_PID; stop it with kill.
+fake_session() {
+    local dir="${BATS_TEST_TMPDIR}/holder"
+    mkdir -p "${dir}"
+    cat >"${dir}/praetorian" <<'HOLDER'
+#!/usr/bin/env bash
+sleep 60 &
+trap 'kill $!; exit 0' TERM
+wait
+HOLDER
+    chmod 755 "${dir}/praetorian"
+    "${dir}/praetorian" &
+    SESSION_PID=$!
+}
+
 # Installs the fake port in the test's MacPorts prefix.
 with_macports() {
     mkdir -p "${PRAETORIAN_PORT_PREFIX}/bin"
@@ -118,8 +135,8 @@ with_macports() {
 
 @test "another session running: blocked with an explanation, nothing run" {
     mkdir -p "${HOME}/praetorian/.lock"
-    sleep 60 &
-    local pid=$!
+    fake_session
+    local pid=${SESSION_PID}
     echo "${pid}" >"${HOME}/praetorian/.lock/pid"
     run "${PRAETORIAN}"
     kill "${pid}"
@@ -137,6 +154,82 @@ with_macports() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Lock left by a session that ended abruptly"* ]] || false
     [ ! -e "${HOME}/praetorian/.lock" ]
+}
+
+@test "lock whose PID was reused by another program: taken over" {
+    # A ps that can't show one PID's command (BusyBox): praetorian then
+    # keeps the lock, the safe side.
+    ps -ww -p $$ -o command= >/dev/null 2>&1 || skip "this ps can't show the command of a PID"
+    mkdir -p "${HOME}/praetorian/.lock"
+    sleep 60 &
+    local pid=$!
+    echo "${pid}" >"${HOME}/praetorian/.lock/pid"
+    run "${PRAETORIAN}"
+    kill "${pid}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Lock left by a session that ended abruptly (PID ${pid}, no longer running or reused by another program)"* ]] || false
+    [ ! -e "${HOME}/praetorian/.lock" ]
+}
+
+# --- State directory (PRAETORIAN_HOME) ----------------------------------------
+
+@test "PRAETORIAN_HOME is a file: blocked with an explanation, not an unexpected error" {
+    : >"${BATS_TEST_TMPDIR}/afile"
+    PRAETORIAN_HOME="${BATS_TEST_TMPDIR}/afile" run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"BLOCKED: PRAETORIAN_HOME is not usable"* ]] || false
+    [[ "${output}" == *"${BATS_TEST_TMPDIR}/afile exists but is not a directory."* ]] || false
+    [[ "${output}" != *"unexpected error"* ]] || false
+    [ ! -s "${BREW_CALLS}" ]
+}
+
+@test "PRAETORIAN_HOME can't be created: blocked, nothing created" {
+    mkdir "${BATS_TEST_TMPDIR}/readonly"
+    chmod 555 "${BATS_TEST_TMPDIR}/readonly"
+    PRAETORIAN_HOME="${BATS_TEST_TMPDIR}/readonly/a/state" run "${PRAETORIAN}" --dry-run
+    chmod 755 "${BATS_TEST_TMPDIR}/readonly"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"BLOCKED: PRAETORIAN_HOME is not usable"* ]] || false
+    [[ "${output}" == *"can't be created: ${BATS_TEST_TMPDIR}/readonly is not a directory you can write to."* ]] || false
+    [[ "${output}" != *"unexpected error"* ]] || false
+    [ ! -e "${BATS_TEST_TMPDIR}/readonly/a" ]
+}
+
+@test "PRAETORIAN_HOME writable by everyone: blocked" {
+    mkdir "${BATS_TEST_TMPDIR}/open"
+    chmod 777 "${BATS_TEST_TMPDIR}/open"
+    PRAETORIAN_HOME="${BATS_TEST_TMPDIR}/open" run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${BATS_TEST_TMPDIR}/open is writable by everyone."* ]] || false
+    [ ! -e "${BATS_TEST_TMPDIR}/open/logs" ]
+}
+
+@test "PRAETORIAN_HOME writable by the group only (umask 002): accepted" {
+    mkdir "${BATS_TEST_TMPDIR}/shared"
+    chmod 775 "${BATS_TEST_TMPDIR}/shared"
+    PRAETORIAN_HOME="${BATS_TEST_TMPDIR}/shared" run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 0 ]
+    [ -d "${BATS_TEST_TMPDIR}/shared/logs" ]
+}
+
+@test "HOME not set: one line saying so, not bash's unbound variable" {
+    run env -u HOME "${PRAETORIAN}" --help
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"HOME is not an absolute path (not set)"* ]] || false
+    [[ "${output}" != *"unbound variable"* ]] || false
+}
+
+@test "launchd's stderr file past 1 MB: cut to its last 500 lines; a dry-run leaves it" {
+    local f="${LOGS}/launchd.stderr.log"
+    mkdir -p "${LOGS}"
+    awk 'BEGIN { for (i = 1; i <= 60000; i++) print "stderr line number " i }' >"${f}"
+    run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 0 ]
+    [ "$(wc -l <"${f}" | tr -d ' ')" -eq 60000 ]
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    [ "$(wc -l <"${f}" | tr -d ' ')" -eq 500 ]
+    [ "$(tail -n 1 "${f}")" = "stderr line number 60000" ]
 }
 
 @test "disk almost full: blocked before any command" {

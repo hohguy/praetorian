@@ -31,6 +31,17 @@
 #
 set -euo pipefail
 
+# Really root: only macOS's own tools from here on. sudo keeps the
+# caller's PATH on macOS (no secure_path by default), so grep, sed, mv or
+# chown would otherwise be the first one found there, possibly in a
+# directory the caller can write to (Homebrew's bin), and run as root.
+# EUID, not "id -u": the tests replace id and never run as root, so they
+# keep their fakes.
+if [[ "${EUID}" -eq 0 ]]; then
+    PATH=/usr/bin:/bin:/usr/sbin:/sbin
+    export PATH
+fi
+
 readonly DEFAULT_TARGET=/etc/pam.d/sudo_local
 readonly LINE='auth       sufficient     pam_tid.so'
 readonly ACTIVE_RE='^[[:space:]]*auth[[:space:]].*pam_tid\.so'
