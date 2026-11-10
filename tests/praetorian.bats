@@ -48,7 +48,7 @@ with_macports() {
     [[ "${output}" == *"praetorian ${version} "* ]] || false
 }
 
-@test "version: README's latest release and CHANGELOG's top entry match PRAETORIAN_VERSION" {
+@test "version: README's latest release and CHANGELOG's first numbered entry match PRAETORIAN_VERSION" {
     local root="${BATS_TEST_DIRNAME}/.." version readme changelog
     version=$(sed -nE 's/^readonly PRAETORIAN_VERSION="([^"]*)"$/\1/p' "${root}/praetorian")
     readme=$(sed -n '/^## Latest release/,/^## /p' "${root}/README.md" | sed -nE 's/^### ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)
@@ -611,6 +611,14 @@ in_praetorian() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"foo is installed despite a brew error"* ]] || false
     [ ! -s "${QUARANTINE}" ]
+}
+
+@test "brew error and brew outdated fails too → still a failure, no \"installed\" warning" {
+    export BREW_OUTDATED_FORMULA=foo BREW_OUTDATED_FORMULA_AFTER="" BREW_OUTDATED_AFTER_RC=1 BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT='Error: Failed to fix install linkage'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" != *"foo is installed despite a brew error"* ]] || false
 }
 
 @test "dependency build failure → the dependency and the formula quarantined" {
