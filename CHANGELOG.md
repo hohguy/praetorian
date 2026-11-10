@@ -32,6 +32,37 @@ have none.
 - `tests/schedule.bats` failed under a umask of 002 (directories
   writable by the group, which `praetorian-schedule` refuses): the
   tests set 022.
+- A `PRAETORIAN_HOME` that is a file, can't be written to or can't be
+  created ended in "unexpected error in praetorian" with a log that
+  didn't exist. It's now a block that says which of those it is, before
+  anything is written. One that belongs to another user, or that
+  everyone can write to, is refused too.
+- Without `HOME`, praetorian stopped on bash's "HOME: unbound variable".
+  It now says so in one line.
+- Started as `bash praetorian`, a session failed with "praetorian: not
+  found" (or ran another praetorian found in the `PATH`) when it started
+  itself again under `caffeinate`. It now uses its full path.
+- A lock whose PID had been reused by another program after a crash or a
+  power cut blocked every later session until `.lock` was removed by
+  hand. The lock now counts as held only when that PID is a praetorian.
+- Closing the terminal during a session (`SIGHUP`) ended in "unexpected
+  error": it now stops like Ctrl-C (step killed, lock released, code
+  130).
+- `launchd.stderr.log` grew without limit: past 1 MB, a session keeps
+  its last 500 lines.
+- `praetorian-schedule status` read a `PRAETORIAN_HOME` containing `&`,
+  `<` or `>` as written in the plist (`&amp;`), and found no log there.
+
+### Security
+
+- `praetorian-sudo-setup` ran `grep`, `sed`, `awk`, `mv` and `chown` as
+  root from the caller's `PATH`, which sudo keeps on macOS. As root, it
+  now sets the `PATH` to macOS's own directories.
+
+### Changed
+
+- CI: the two jobs stop after 60 minutes instead of GitHub's 6 hours,
+  and Dependabot proposes updates of the actions pinned by commit.
 
 ## 1.5.2 - 2026-11-09
 
