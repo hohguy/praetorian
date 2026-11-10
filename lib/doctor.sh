@@ -801,21 +801,21 @@ settings_files() {
     # homebrew.mxcl.*: brew services' own files, checked on their own
     # (brew_service_plist).
     find "${roots[@]}" -maxdepth 5 \
-        \( -type d \( -name '[Cc]ache*' -o -name '*Cache' -o -name 'CachedData' -o -name '[Ll]ogs' \
+        -type d \( -name '[Cc]ache*' -o -name '*Cache' -o -name 'CachedData' -o -name '[Ll]ogs' \
         -o -name '*[Ss]ession*' -o -name '[Ee]xtensions' -o -name 'node_modules' -o -name '.git' \
         -o -name '[Bb]ackup*' -o -name 'History' -o -name 'IndexedDB' -o -name 'Local Storage' \
         -o -name 'Service Worker' -o -name 'blob_storage' -o -name 'Crashpad' \
         -o -name 'workspaceStorage' -o -name 'globalStorage' \
         -o -name 'com.apple.*' -o -name 'AddressBook' -o -name 'CallHistory*' -o -name 'MobileSync' \
-        -o -name 'CloudDocs' -o -name 'Knowledge' -o -name 'FileProvider' \) -prune \) -o \
-        \( -type f -size -1024k \
+        -o -name 'CloudDocs' -o -name 'Knowledge' -o -name 'FileProvider' \) -prune -o \
+        -type f -size -1024k \
         \( -name '*.json' -o -name '*.jsonc' -o -name '*.ini' -o -name '*.conf' -o -name '*.plist' \
         -o -name '*.toml' -o -name '*.yml' -o -name '*.yaml' -o -name '*.cfg' -o -name 'config' \
         -o -name '*rc' -o -name '.*' \) \
         ! -name '.DS_Store' ! -name 'com.apple.*' ! -name 'homebrew.mxcl.*' \
         ! -name '*.bak' ! -name '*.orig' ! -name '*.old' ! -name '*.save' ! -name '*.swp' \
         ! -name '*.backup*' ! -name '*.before-*' ! -name '*~' \
-        -exec grep -lF "${needles[@]}" {} + \) 2>/dev/null || true
+        -exec grep -lF "${needles[@]}" {} + 2>/dev/null || true
 }
 
 # settings_scan <brew prefix>: fills SETTINGS_HITS, once per run. Call it
