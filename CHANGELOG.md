@@ -5,9 +5,11 @@ All notable changes to praetorian are listed here. The format follows
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The version printed by `praetorian --help` and the latest version in the
-README (section "Latest release") must match, and so must the top entry
-of this file: a test checks all three. Git tags start at 1.5.0: the
-earlier versions have none.
+README (section "Latest release") must match, and so must the first
+numbered entry of this file: a test checks all three. Changes merged
+since that release are listed under "Unreleased", above it, until the
+next version takes them. Git tags start at 1.5.0: the earlier versions
+have none.
 
 ## Unreleased
 
@@ -20,6 +22,16 @@ earlier versions have none.
   by `docbook-xsl-nons`) for lack of a binary that will never exist, and
   the report listed it under "Same name". Both now point to the
   replacement.
+- `praetorian-sudo-setup` could say "No fingerprint enrolled" with one
+  enrolled: `grep -q` left at the first match and `bioutil`, still
+  writing, failed the pipeline (seen as a test that failed now and
+  then). The output is now read in full first.
+- A formula whose upgrade failed was counted as installed when
+  `brew outdated` failed too (no output, like an up-to-date formula).
+  It now takes a `brew outdated` that succeeds and no longer lists it.
+- `tests/schedule.bats` failed under a umask of 002 (directories
+  writable by the group, which `praetorian-schedule` refuses): the
+  tests set 022.
 
 ## 1.5.2 - 2026-11-09
 
