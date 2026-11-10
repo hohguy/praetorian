@@ -16,6 +16,10 @@ earlier versions have none.
 - `ci/macos-tests --jobs N` ran no test: the script resets the PATH,
   and bats needs GNU parallel for `--jobs`. It now keeps `parallel`,
   and only that, in the PATH.
+- `--migrate` blocked an obsolete MacPorts port (`docbook-xsl`, replaced
+  by `docbook-xsl-nons`) for lack of a binary that will never exist, and
+  the report listed it under "Same name". Both now point to the
+  replacement.
 
 ## 1.5.2 - 2026-11-09
 
