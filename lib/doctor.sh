@@ -739,7 +739,7 @@ SETTINGS_HITS=""
 # settings_tokens <prefix> <numbered: 1 | 0>, text on stdin.
 settings_tokens() {
     awk -v prefix="$1" -v numbered="$2" '
-        function scan(s, kind,    needle, i, rest, name, pre) {
+        function scan(s, kind,    needle, i, rest, name, pre, tag) {
             needle = prefix kind
             while ((i = index(s, needle)) > 0) {
                 pre = (i > 1) ? substr(s, i - 1, 1) : ""
@@ -747,7 +747,10 @@ settings_tokens() {
                 if (pre !~ /[A-Za-z0-9._\/-]/ && match(rest, /^[A-Za-z0-9@._+-]+/)) {
                     name = substr(rest, 1, RLENGTH)
                     sub(/[.]+$/, "", name)
-                    if (name != "") print (numbered ? FNR : "-") "\t" kind name
+                    # Not "print (…) …": BusyBox awk misreads a print that
+                    # starts with a parenthesis.
+                    tag = (numbered == 1) ? FNR : "-"
+                    if (name != "") print tag "\t" kind name
                 }
                 s = rest
             }
@@ -779,6 +782,27 @@ settings_formula_of() {
     return 0
 }
 
+# settings_grep <grep pattern options…>: the NUL-separated file names on
+# stdin that contain one of the patterns, one per line. grep runs on 200
+# names at a time: find's "-exec grep {} +" isn't used, since how and when
+# it runs its last batch differs between find implementations (BusyBox
+# skips it inside parentheses).
+settings_grep() {
+    local f
+    local -a batch=()
+    while IFS= read -r -d '' f; do
+        batch+=("${f}")
+        if ((${#batch[@]} >= 200)); then
+            grep -lF "$@" -- "${batch[@]}" 2>/dev/null || true
+            batch=()
+        fi
+    done
+    if ((${#batch[@]} > 0)); then
+        grep -lF "$@" -- "${batch[@]}" 2>/dev/null || true
+    fi
+    return 0
+}
+
 # The configuration files that mention the prefix, one per line (a name
 # with a newline in it is ignored by the caller: it finds no such file).
 # find fails on a folder it can't read: what it could read is kept.
@@ -791,7 +815,7 @@ settings_files() {
         ! -name '.DS_Store' ! -name '.*history*' ! -name '.lesshst' ! -name '.viminfo' ! -name '.zcompdump*' \
         ! -name '*.bak' ! -name '*.orig' ! -name '*.old' ! -name '*.save' ! -name '*.swp' \
         ! -name '*.backup*' ! -name '*.before-*' ! -name '*~' \
-        -exec grep -lF "${needles[@]}" {} + 2>/dev/null || true
+        -print0 2>/dev/null | settings_grep "${needles[@]}" || true
     for d in "${HOME}/.config" "${HOME}/.ssh" "${HOME}/.gnupg" \
         "${HOME}/Library/Application Support" "${HOME}/Library/Preferences" "${HOME}/Library/LaunchAgents" \
         "${DOCTOR_ROOT}/Library/LaunchAgents" "${DOCTOR_ROOT}/Library/LaunchDaemons"; do
@@ -815,13 +839,14 @@ settings_files() {
         ! -name '.DS_Store' ! -name 'com.apple.*' ! -name 'homebrew.mxcl.*' \
         ! -name '*.bak' ! -name '*.orig' ! -name '*.old' ! -name '*.save' ! -name '*.swp' \
         ! -name '*.backup*' ! -name '*.before-*' ! -name '*~' \
-        -exec grep -lF "${needles[@]}" {} + 2>/dev/null || true
+        -print0 2>/dev/null | settings_grep "${needles[@]}" || true
 }
 
 # settings_scan <brew prefix>: fills SETTINGS_HITS, once per run. Call it
 # from the main shell, not from $( ): the result is kept in globals.
 #   - a binary plist has no lines: its text is cut at every byte that
-#     isn't printable, and the hit carries no line number;
+#     isn't printable ASCII (an octal range, not [:print:]: BusyBox's tr
+#     may be built without classes), and the hit carries no line number;
 #   - in the shell startup files, opt/ and Cellar/ paths are left to
 #     shell_rc_refs (they block a migration); only bin/ ones are new here.
 settings_scan() {
@@ -846,7 +871,7 @@ settings_scan() {
             SETTINGS_HITS+="${formula:-?}"$'\t'"${where}${line:+:${line}}"$'\t'"${prefix}${token}"$'\n'
         done < <(
             if [[ "$(head -c 6 "${file}" 2>/dev/null)" == bplist ]]; then
-                LC_ALL=C tr -c '[:print:]\n' '\n' <"${file}" 2>/dev/null | settings_tokens "${prefix}" 0
+                LC_ALL=C tr -c '\040-\176\n' '\n' <"${file}" 2>/dev/null | settings_tokens "${prefix}" 0
             else
                 settings_tokens "${prefix}" 1 <"${file}" 2>/dev/null
             fi | sort -u
