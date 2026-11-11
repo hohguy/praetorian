@@ -52,6 +52,8 @@ have none.
   its last 500 lines.
 - `praetorian-schedule status` read a `PRAETORIAN_HOME` containing `&`,
   `<` or `>` as written in the plist (`&amp;`), and found no log there.
+- `ci/macos-tests tests/<file>.bats` ran the whole suite and that file
+  a second time. Given test files, it now runs only those.
 
 ### Security
 
