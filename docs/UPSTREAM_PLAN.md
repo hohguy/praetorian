@@ -71,7 +71,7 @@ one port per `port` call inside one sudo, without `-p`.
 | J | coreutils: MacPorts installs `g`-prefixed names; not in the known-traps table | Issue | dropped: Homebrew's coreutils uses the same `g` names and `libexec/gnubin`; a `gnubin` PATH line is already blocked |
 | K | A dry run can't predict a dependency with no binary; a failed binary-only install leaves the dependencies it already installed | Issue | planned |
 | L | Test-suite run time | Issue | folded into F (timings in #16 and #17) |
-| O | A block message gives a machine-specific example ("every mysql port on this Mac") | Issue + PR | ready on `fix/no-binary-example` (2 commits on ddfca70, not pushed); next round |
+| O | A block message gives a machine-specific example ("every mysql port on this Mac") | Issue + PR | posted: [#30](https://github.com/victor-sys-admin/praetorian/issues/30), PR [#31](https://github.com/victor-sys-admin/praetorian/pull/31) |
 | P | The progress line isn't cleared before the ✓; MacPorts' "ports you installed have notes" isn't shown | Issue | checked on ddfca70: the notes part still applies (nothing reads "ports you installed have notes"); the progress part is likely the line wrapping past 80 columns, as `\r\033[K` clears one screen line: reproduce before filing |
 | S | The report flags the same project under an old and a new homepage address | Issue (maybe PR) | still applies on ddfca70 (`git-lfs.com` vs `git-lfs.github.com`), and also `gi.readthedocs.io/en/latest/` vs `gi.readthedocs.io`; following redirects (`curl -sIL`, final URL) resolves both |
 | U | Disk use during a long formula upgrade: free space is checked only at the start and `brew cleanup` runs only at the end (suggest `brew cleanup <formula>` after each upgrade, a free-space check before each formula, and on low space: stop, skip the casks, still clean up) | Issue (feature request) | done by the maintainer: [#24](https://github.com/victor-sys-admin/praetorian/issues/24), his PR [#27](https://github.com/victor-sys-admin/praetorian/pull/27), merged 2026-11-11 |
@@ -86,4 +86,4 @@ purpose". They are written up as suggestions, not requests.
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| X | Settings search: a path in a binary plist glued to the next string (cut at non-printable bytes, but a short string's marker byte is printable); the MacPorts installer's `.macports-saved_…` copies read | Issue + PR | posted: [#28](https://github.com/victor-sys-admin/praetorian/issues/28), PR [#29](https://github.com/victor-sys-admin/praetorian/pull/29) |
+| X | Settings search: a path in a binary plist glued to the next string (cut at non-printable bytes, but a short string's marker byte is printable); the MacPorts installer's `.macports-saved_…` copies read | Issue + PR | merged: [#28](https://github.com/victor-sys-admin/praetorian/issues/28), PR [#29](https://github.com/victor-sys-admin/praetorian/pull/29) (2026-11-11) |
