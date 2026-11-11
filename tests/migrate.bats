@@ -223,6 +223,90 @@ in_praetorian() {
     [[ "${output}" == *"Same project: wget and wget have the same homepage"* ]] || false
 }
 
+# --- Settings that name the formula's Homebrew paths ---------------------------
+
+# A Homebrew prefix with gh linked into bin as brew does, and the Git
+# credential helper "gh auth setup-git" writes.
+with_brew_gh() {
+    export BREW_PREFIX="${BATS_TEST_TMPDIR}/brew"
+    mkdir -p "${BREW_PREFIX}/Cellar/gh/2.60/bin" "${BREW_PREFIX}/bin"
+    : >"${BREW_PREFIX}/Cellar/gh/2.60/bin/gh"
+    ln -s ../Cellar/gh/2.60/bin/gh "${BREW_PREFIX}/bin/gh"
+    export BREW_LIST_FILES="${BREW_PREFIX}/Cellar/gh/2.60/bin/gh"
+    printf '[credential "https://github.com"]\n\thelper = !%s/bin/gh auth git-credential\n' "${BREW_PREFIX}" >"${HOME}/.gitconfig"
+}
+
+@test "--migrate: a setting names the formula's command (~/.gitconfig) → warned, not blocked, listed again with the MacPorts path" {
+    with_brew_gh
+    export PORT_AVAILABLE="gh" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/gh"
+    run "${PRAETORIAN}" --migrate gh
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 setting(s) name Homebrew paths of gh"* ]] || false
+    [[ "${output}" == *"- ~/.gitconfig:2: ${BREW_PREFIX}/bin/gh"$'\n'* ]] || false
+    grep -qx 'uninstall --formula gh' "${BREW_CALLS}"
+    [[ "${output}" == *"1 setting(s) still name the Homebrew paths of gh"* ]] || false
+    [[ "${output}" == *"- ~/.gitconfig:2: ${BREW_PREFIX}/bin/gh → ${PRAETORIAN_PORT_PREFIX}/bin/gh"* ]] || false
+}
+
+@test "--migrate: no setting names the formula → said so, nothing to change afterwards" {
+    with_brew_gh
+    rm "${HOME}/.gitconfig"
+    # Another formula's command, a comment and a backup copy don't count.
+    printf 'helper = !%s/bin/wget\n# was: %s/bin/gh\n' "${BREW_PREFIX}" "${BREW_PREFIX}" >"${HOME}/.gitconfig"
+    printf 'x = %s/bin/gh\n' "${BREW_PREFIX}" >"${HOME}/.gitconfig.before-migration"
+    export PORT_AVAILABLE="gh" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/gh"
+    run "${PRAETORIAN}" --migrate gh
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"No other setting found naming the Homebrew paths of gh"* ]] || false
+    [[ "${output}" != *"still name the Homebrew paths"* ]] || false
+}
+
+@test "--migration-report: a setting names a formula's path → noted on its line, still in --migrate-all's list" {
+    with_brew_gh
+    export BREW_LEAVES=gh PORT_AVAILABLE="gh"
+    export BREW_HOMEPAGES="gh=https://cli.github.com/" PORT_INFO="gh=2.60.0_0,https://cli.github.com/,MIT"
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"- gh (settings name it: ~/.gitconfig)"* ]] || false
+    [[ "${output}" == *"migrates the 1 of them"* ]] || false
+    [[ "${output}" == *"\"(settings name it: …)\": files outside your shell startup files"* ]] || false
+    [[ "${output}" != *"The [ ] notes will block"* ]] || false
+}
+
+@test "unit: settings_scan, where it looks and what it skips" {
+    export BREW_PREFIX="${BATS_TEST_TMPDIR}/brew" PRAETORIAN_DOCTOR_ROOT="${BATS_TEST_TMPDIR}/root"
+    local app="${HOME}/Library/Application Support/Editor"
+    mkdir -p "${BREW_PREFIX}/Cellar/gh/2.60/bin" "${BREW_PREFIX}/bin" "${BREW_PREFIX}/opt" \
+        "${app}/Cache" "${app}/extensions/x" "${HOME}/.config/tool" "${PRAETORIAN_DOCTOR_ROOT}/Library/LaunchDaemons"
+    : >"${BREW_PREFIX}/Cellar/gh/2.60/bin/gh"
+    ln -s ../Cellar/gh/2.60/bin/gh "${BREW_PREFIX}/bin/gh"
+    ln -s ../Cellar/gh/2.60 "${BREW_PREFIX}/opt/gh"
+    printf '{"git": "%s/bin/gh", "py": "%s/opt/python@3.12/bin/python3"}\n' "${BREW_PREFIX}" "${BREW_PREFIX}" >"${app}/settings.json"
+    printf '{"git": "%s/bin/gh"}\n' "${BREW_PREFIX}" >"${app}/Cache/state.json"
+    printf '{"git": "%s/bin/gh"}\n' "${BREW_PREFIX}" >"${app}/extensions/x/package.json"
+    printf 'chat about %s/bin/gh\n' "${BREW_PREFIX}" >"${app}/chat.log"
+    printf 'tool = "%s/Cellar/gh/2.60/bin/gh"\n' "${BREW_PREFIX}" >"${HOME}/.config/tool/config.toml"
+    printf '<string>%s/sbin/daemon</string>\n' "${BREW_PREFIX}" >"${PRAETORIAN_DOCTOR_ROOT}/Library/LaunchDaemons/org.example.plist"
+    # In a shell startup file: bin/ paths only (opt/ ones block a migration already).
+    # shellcheck disable=SC2016  # $PATH stays literal: it's the file's content
+    printf 'alias g=%s/bin/gh\nexport PATH=%s/opt/gh/bin:$PATH\n' "${BREW_PREFIX}" "${BREW_PREFIX}" >"${HOME}/.zshrc"
+    # The end of a longer path isn't the prefix.
+    printf 'x = /Volumes/disk%s/bin/gh\n' "${BREW_PREFIX}" >"${HOME}/.otherrc"
+    export CRONTAB_CONTENT="0 4 * * * ${BREW_PREFIX}/bin/gh repo sync"
+    # shellcheck disable=SC2016  # expanded by the inner bash
+    run in_praetorian 'settings_scan "${BREW_PREFIX}"; printf "%s" "${SETTINGS_HITS}" | sed "s#${BREW_PREFIX}#P#g; s#${PRAETORIAN_DOCTOR_ROOT}#R#g" | sort'
+    [ "${status}" -eq 0 ]
+    local expected
+    expected=$(printf '%s\n' \
+        $'?\tR/Library/LaunchDaemons/org.example.plist:1\tP/sbin/daemon' \
+        $'gh\tcrontab:1\tP/bin/gh' \
+        $'gh\t~/.config/tool/config.toml:1\tP/Cellar/gh' \
+        $'gh\t~/.zshrc:1\tP/bin/gh' \
+        $'gh\t~/Library/Application Support/Editor/settings.json:1\tP/bin/gh' \
+        $'python@3.12\t~/Library/Application Support/Editor/settings.json:1\tP/opt/python@3.12' | sort)
+    [ "${output}" = "${expected}" ]
+}
+
 # --- Companion ports, port select, versioned names ----------------------------
 
 @test "--migrate: companion ports installed, commands checked across all of them" {

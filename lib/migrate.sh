@@ -499,6 +499,20 @@ brew_service_plist() {
     return 1
 }
 
+# migration_settings_note <formula>: " (settings name it: ~/.gitconfig, …)"
+# when settings outside the shell startup files name its Homebrew paths
+# (settings_scan, lib/doctor.sh, must have run). Not a [ ] note: it
+# doesn't block, the search can't be complete. At most 3 files named.
+migration_settings_note() {
+    local files n
+    files=$(settings_refs "$1" | cut -f1 | sed -E 's/:[0-9]+$//' | sort -u)
+    n=$(count_lines "${files}")
+    ((n > 0)) || return 0
+    files=$(head -n 3 <<<"${files}" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+    ((n <= 3)) || files+=", … ($((n - 3)) more)"
+    printf ' %s(settings name it: %s)%s' "${C_DIM}" "${files}" "${C_RESET}"
+}
+
 # Blocking notes for a formula (migration report).
 migration_notes() {
     local f=${1##*/} prefix=$2 notes="" refs
@@ -525,6 +539,7 @@ declare -a PLAN_APPROX=()   # known trap or probably another name
 declare -a PLAN_NONE=()     # nothing found
 declare -a PLAN_READY=()    # what --migrate-all migrates
 PLAN_HAS_NOTES=false        # some [ ] note shown
+PLAN_HAS_SETTINGS=false     # some "(settings name it: …)" shown
 PLAN_BINARY_CHECKED=0       # ports whose binary was looked for
 PLAN_BINARY_MISSING=0       # …and had none
 PLAN_BINARY_SKIPPED=0       # not checked (limit reached, or offline)
@@ -565,7 +580,7 @@ plan_binary_note() {
 # Read-only.
 migration_classify() {
     local check_binaries=${1:-}
-    PLAN_LEAVES="" PLAN_HAS_NOTES=false
+    PLAN_LEAVES="" PLAN_HAS_NOTES=false PLAN_HAS_SETTINGS=false
     PLAN_SAME=() PLAN_DIFFER=() PLAN_APPROX=() PLAN_NONE=() PLAN_READY=()
     if [[ "${HAS_PORT}" != true ]]; then
         block "MacPorts isn't installed" \
@@ -593,9 +608,11 @@ migration_classify() {
     fi
     [[ "${check_binaries}" != binaries ]] || BINARY_CHECK_TIMEOUT=5
 
-    local prefix f known kports cands notes bnote meta port_hp brew_hp verdict homepages repl
+    local prefix f known kports cands notes bnote meta port_hp brew_hp verdict homepages repl snote
     PLAN_LEAVES=$(brew leaves 2>>"${LOG_FILE}" || true)
     prefix=$(brew --prefix 2>/dev/null) || prefix=""
+    # Settings that name a Homebrew path: one search for every formula.
+    settings_scan "${prefix}"
     # Homepages of the formulae with a port of the same name, one brew call.
     local -a same_name=()
     while IFS= read -r f; do
@@ -607,6 +624,10 @@ migration_classify() {
     while IFS= read -r f; do
         [[ -n "${f}" ]] || continue
         notes=$(migration_notes "${f}" "${prefix}")
+        # Appended to the notes after they are tested: it shows on the
+        # formula's line without counting as a [ ] note.
+        snote=$(migration_settings_note "${f}")
+        [[ -z "${snote}" ]] || PLAN_HAS_SETTINGS=true
         known=$(known_port_spec "${f}" "${all}")
         kports=${known%%$'\t'*}
         if [[ -n "${known}" ]] && grep -qxF "${kports%%,*}" <<<"${all}"; then
@@ -619,7 +640,7 @@ migration_classify() {
                 bnote=${PLAN_BNOTE}
             fi
             [[ -z "${notes}${bnote}" ]] || PLAN_HAS_NOTES=true
-            PLAN_APPROX+=("${f} → ${kports} ${C_DIM}(praetorian --migrate ${f}=${kports})${C_RESET}${notes}${bnote}")
+            PLAN_APPROX+=("${f} → ${kports} ${C_DIM}(praetorian --migrate ${f}=${kports})${C_RESET}${notes}${bnote}${snote}")
         elif grep -qxF "${f}" <<<"${all}"; then
             brew_hp=$(awk -F '\t' -v f="${f}" '$1 == f { print $2; exit }' <<<"${homepages}")
             port_hp=""
@@ -636,13 +657,13 @@ migration_classify() {
                     bnote=${PLAN_BNOTE}
                 fi
                 [[ -z "${notes}${bnote}" ]] || PLAN_HAS_NOTES=true
-                PLAN_APPROX+=("${f} → ${repl} ${C_DIM}(${f} is obsolete in MacPorts: praetorian --migrate ${f}=${repl})${C_RESET}${notes}${bnote}")
+                PLAN_APPROX+=("${f} → ${repl} ${C_DIM}(${f} is obsolete in MacPorts: praetorian --migrate ${f}=${repl})${C_RESET}${notes}${bnote}${snote}")
                 continue
             fi
             verdict=$(homepage_verdict "${brew_hp}" "${port_hp}")
             if [[ "${verdict}" == mismatch ]]; then
                 [[ -z "${notes}" ]] || PLAN_HAS_NOTES=true
-                PLAN_DIFFER+=("${f} ${C_DIM}(Homebrew: ${brew_hp} — MacPorts: ${port_hp})${C_RESET}${notes}")
+                PLAN_DIFFER+=("${f} ${C_DIM}(Homebrew: ${brew_hp} — MacPorts: ${port_hp})${C_RESET}${notes}${snote}")
                 continue
             fi
             bnote=""
@@ -652,18 +673,18 @@ migration_classify() {
             fi
             [[ -z "${notes}${bnote}" ]] || PLAN_HAS_NOTES=true
             if [[ "${verdict}" == match ]]; then
-                PLAN_SAME+=("${f}${notes}${bnote}")
+                PLAN_SAME+=("${f}${notes}${bnote}${snote}")
                 [[ -n "${notes}${bnote}" ]] || PLAN_READY+=("${f}")
             else
-                PLAN_SAME+=("${f} ${C_DIM}(homepage not compared)${C_RESET}${notes}${bnote}")
+                PLAN_SAME+=("${f} ${C_DIM}(homepage not compared)${C_RESET}${notes}${bnote}${snote}")
             fi
         else
             cands=$(port_candidates "${f}" "${all}")
             [[ -z "${notes}" ]] || PLAN_HAS_NOTES=true
             if [[ -n "${cands}" ]]; then
-                PLAN_APPROX+=("${f} → ${cands}${notes}")
+                PLAN_APPROX+=("${f} → ${cands}${notes}${snote}")
             else
-                PLAN_NONE+=("${f}${notes}")
+                PLAN_NONE+=("${f}${notes}${snote}")
             fi
         fi
     done <<<"${PLAN_LEAVES}"
@@ -721,6 +742,11 @@ migration_report() {
         [[ "${listed}" != *"[no binary for this Mac:"* ]] ||
             say "    ${C_DIM}[no binary for this Mac: …] → MacPorts would compile it (hours, may fail): wait for the binary, or --allow-build${C_RESET}"
     fi
+    if [[ "${PLAN_HAS_SETTINGS}" == true ]]; then
+        say ""
+        info "\"(settings name it: …)\": files outside your shell startup files that name the formula's Homebrew paths (a Git credential helper, an editor's interpreter, a launch agent…)."
+        say "    ${C_DIM}Not blocking: they point to nothing once the formula is uninstalled. --migrate lists the lines, with the MacPorts path to put there.${C_RESET}"
+    fi
     if ((PLAN_BINARY_CHECKED > 0 || PLAN_BINARY_SKIPPED > 0)); then
         say ""
         info "Precompiled binaries (packages.macports.org, $(binary_platform)): ${PLAN_BINARY_CHECKED} port(s) checked, ${PLAN_BINARY_MISSING} without one."
@@ -766,8 +792,12 @@ migration_report() {
 # the ports were named with "="), short (formula without its tap, as used
 # in opt/ paths, service names and MacPorts), brew_files (set by
 # migrate_check_formula), brew_bins (set by migrate_check_port).
-MIGRATE_RESULT="" # "migrated", "checked" (dry-run), empty: not done
-MIGRATE_DONE=""   # formulae migrated (or checked, dry-run) this session
+MIGRATE_RESULT=""   # "migrated", "checked" (dry-run), empty: not done
+MIGRATE_DONE=""     # formulae migrated (or checked, dry-run) this session
+MIGRATE_SETTINGS="" # settings naming the formula's Homebrew paths (migrate_check_settings)
+# "<formula>: <where>" of the settings left to change after the migrations
+# of this session, for the summary of a batch.
+declare -a SETTINGS_TODO=()
 
 migrate() {
     local f=${MIGRATE_SPEC%%=*} p short spec_ports explicit=false
@@ -781,13 +811,14 @@ migrate() {
     IFS=, read -r -a ports <<<"${spec_ports}"
     p=${ports[0]}
     MIGRATE_RESULT=""
+    MIGRATE_SETTINGS=""
     section "Migration: ${f} (Homebrew) → ${spec_ports//,/ + } (MacPorts)"
     say "Fail-safe order: check → install with MacPorts → check → only then uninstall with Homebrew."
     say "${C_DIM}If a step fails, praetorian stops and ${f} stays installed with Homebrew.${C_RESET}"
 
     local brew_files="" brew_bins="" step blocks_before=${#BLOCKERS[@]}
-    for step in migrate_preconditions migrate_check_formula migrate_check_usage migrate_check_name \
-        migrate_check_port migrate_check_project migrate_check_binary; do
+    for step in migrate_preconditions migrate_check_formula migrate_check_usage migrate_check_settings \
+        migrate_check_name migrate_check_port migrate_check_project migrate_check_binary; do
         "${step}"
         ((${#BLOCKERS[@]} == blocks_before)) || return 0
     done
@@ -878,6 +909,51 @@ migrate_check_usage() {
         return 0
     fi
     ok "No service or shell startup file depends on the Homebrew paths of ${f}"
+}
+
+# 4b. Other settings that name the formula's Homebrew paths (settings_scan,
+# lib/doctor.sh): a Git credential helper, an editor's interpreter, a
+# launch agent, the crontab. A warning, never a block: the search can't
+# be complete, and such a setting is changed after the migration, once
+# the MacPorts command is there. Listed again after the uninstall
+# (migrate_settings_reminder).
+migrate_check_settings() {
+    local prefix where path i=0 n
+    prefix=$(brew --prefix)
+    settings_scan "${prefix}"
+    MIGRATE_SETTINGS=$(settings_refs "${short}")
+    if [[ -z "${MIGRATE_SETTINGS}" ]]; then
+        ok "No other setting found naming the Homebrew paths of ${f} ${C_DIM}(dotfiles, ~/.config, app settings, launch agents, crontab)${C_RESET}"
+        return 0
+    fi
+    n=$(count_lines "${MIGRATE_SETTINGS}")
+    warn "${n} setting(s) name Homebrew paths of ${f}: they will point to nothing once it is uninstalled (not blocking)."
+    while IFS=$'\t' read -r where path; do
+        if ((i++ >= 10)); then
+            say "    ${C_DIM}… $((n - 10)) more, see the log${C_RESET}"
+            break
+        fi
+        say "    ${C_DIM}-${C_RESET} ${where}: ${path}"
+    done <<<"${MIGRATE_SETTINGS}"
+    log_detail "Settings naming ${f}: $(tr '\t\n' ' ;' <<<"${MIGRATE_SETTINGS}")"
+    say "    ${C_DIM}Change them after the migration (listed again then, with the MacPorts path).${C_RESET}"
+}
+
+# After the uninstall: the settings found by migrate_check_settings, each
+# with the MacPorts command of the same name when there is one.
+migrate_settings_reminder() {
+    [[ -n "${MIGRATE_SETTINGS}" ]] || return 0
+    local where path new i=0 n
+    n=$(count_lines "${MIGRATE_SETTINGS}")
+    warn "${n} setting(s) still name the Homebrew paths of ${f}, which are gone: change them now."
+    while IFS=$'\t' read -r where path; do
+        SETTINGS_TODO+=("${f}: ${where}")
+        ((i++ < 10)) || continue
+        new=$(settings_macports_path "${path}")
+        say "    ${C_DIM}-${C_RESET} ${where}: ${path}${new:+ ${C_DIM}→${C_RESET} ${new}}"
+    done <<<"${MIGRATE_SETTINGS}"
+    ((n <= 10)) || say "    ${C_DIM}… $((n - 10)) more, see the log${C_RESET}"
+    say "    ${C_DIM}praetorian --doctor checks later that none is left.${C_RESET}"
 }
 
 # 5. A known trap (known_port_spec) asked for without "=": the same-name
@@ -1259,6 +1335,7 @@ migrate_uninstall_formula() {
     info "Terminals already open: run \"hash -r\" (or open a new one) to use the MacPorts version."
     info "${C_DIM}Homebrew dependencies no longer needed go away at the next brew autoremove (praetorian session).${C_RESET}"
     port_path_check
+    migrate_settings_reminder
 }
 
 # ----------------------------------------------------------------------------
@@ -1394,5 +1471,13 @@ migrate_batch_summary() {
         info "${n_ok} ready, ${n_blocked} blocked, ${n_skipped} skipped (dry-run: nothing was changed)."
     else
         info "${n_ok} migrated, ${n_blocked} blocked, ${n_skipped} skipped."
+    fi
+    # In a batch, the list printed after each migration is far above.
+    if ((${#SETTINGS_TODO[@]} > 0)); then
+        warn "${#SETTINGS_TODO[@]} setting(s) to change, still naming the Homebrew path of a formula migrated above:"
+        for ((i = 0; i < ${#SETTINGS_TODO[@]} && i < 15; i++)); do
+            say "    ${C_DIM}-${C_RESET} ${SETTINGS_TODO[i]}"
+        done
+        ((${#SETTINGS_TODO[@]} <= 15)) || say "    ${C_DIM}… $((${#SETTINGS_TODO[@]} - 15)) more, see the log${C_RESET}"
     fi
 }

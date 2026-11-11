@@ -13,6 +13,21 @@ have none.
 
 ## Unreleased
 
+### Added
+
+- Settings outside the shell startup files that name a formula's
+  Homebrew paths are now looked for: a Git credential helper
+  (`!/usr/local/bin/gh auth git-credential`), an editor's interpreter, a
+  launch agent or daemon, a crontab line. A read-only search of the
+  configuration files in your home dotfiles, `~/.config`,
+  `~/Library/Application Support`, `~/Library/Preferences`, the launch
+  agents and daemons, and your crontab, for `<prefix>/opt/<formula>`,
+  `<prefix>/Cellar/<formula>/` and the formula's commands in
+  `<prefix>/bin`. Never a block: `--migration-report` notes it on the
+  formula's line, `--migrate` warns before the install and lists the
+  lines again after the uninstall with the MacPorts path, and `--doctor`
+  reports the settings whose Homebrew path is already gone.
+
 ### Fixed
 
 - `ci/macos-tests --jobs N` ran no test: the script resets the PATH,

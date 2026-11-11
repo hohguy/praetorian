@@ -6,13 +6,15 @@
 #
 # Read-only checks for what breaks around Homebrew and MacPorts without
 # either of them noticing (pipx environments, files brew can't clean, dead
-# PATH entries…), each with the command that fixes it. Every one of them
+# PATH entries, settings that name a path that is gone…), each with the
+# command that fixes it. Every one of them
 # bit on 2026-10-17, during the move of the command-line tools to
 # MacPorts. Nothing here changes anything: no sudo, no brew or port
 # command that writes, the fixes are only printed.
 #
 # Also formula_external_users, used before a formula is uninstalled
-# (--migrate, --prune).
+# (--migrate, --prune), and the search for settings that name a Homebrew
+# path (settings_scan, used by the migration report and --migrate too).
 #
 # Sourced by ../praetorian after its safety check (see check_libs); not
 # meant to be run on its own.
@@ -698,6 +700,253 @@ doctor_clt_headers() {
 }
 
 # ----------------------------------------------------------------------------
+# Settings that name a Homebrew path
+#
+# The shell startup files aren't the only place a command is named by its
+# full path: Git (the credential helper "gh auth setup-git" writes,
+# !/usr/local/bin/gh auth git-credential), SSH, GnuPG, an editor's
+# interpreter or git path, a launch agent or daemon, the crontab. Once
+# the formula leaves Homebrew, each of them points to nothing, and nothing
+# says so until the day it's used (2026-11: gh migrated, every git push
+# over HTTPS then ran a helper that was gone).
+#
+# They can't all be listed, so the likely places are searched, read-only,
+# for the three forms of a formula's paths: <prefix>/opt/<formula>,
+# <prefix>/Cellar/<formula>/ and its commands as <prefix>/bin/<command>
+# (or sbin). Only configuration files (by name: json, ini, conf, plist,
+# toml, yml, cfg, "config", *rc, dotfiles) under 1 MB; cache, log,
+# session, extension and backup folders are skipped, and so are backup
+# copies of files (.zprofile.before-…) and the folders macOS protects
+# (asking for Contacts to read a path would be absurd). Unfiltered, the
+# same search takes a minute and a half and finds chat logs.
+#
+# It can't prove there is nothing left: what it finds is a note or a
+# warning, never a block.
+#
+# One search per run (settings_scan), shared by the report, --migrate and
+# --doctor. Used from lib/migrate.sh too.
+# ----------------------------------------------------------------------------
+SETTINGS_SCANNED=false
+# "<formula><TAB><where><TAB><path>" per path found; the formula is "?"
+# when unknown (never empty: read would skip an empty first field).
+SETTINGS_HITS=""
+
+# Lists the paths of the Homebrew prefix a text names, as
+# "<line><TAB>/opt/<name>" (or /Cellar/<name>, /bin/<name>, /sbin/<name>);
+# the line is "-" when not numbered (never empty: read would skip it).
+# Comment lines are skipped. A path that is only the end of a longer one
+# (/Volumes/x/usr/local/bin/foo) doesn't count.
+# settings_tokens <prefix> <numbered: 1 | 0>, text on stdin.
+settings_tokens() {
+    awk -v prefix="$1" -v numbered="$2" '
+        function scan(s, kind,    needle, i, rest, name, pre, tag) {
+            needle = prefix kind
+            while ((i = index(s, needle)) > 0) {
+                pre = (i > 1) ? substr(s, i - 1, 1) : ""
+                rest = substr(s, i + length(needle))
+                if (pre !~ /[A-Za-z0-9._\/-]/ && match(rest, /^[A-Za-z0-9@._+-]+/)) {
+                    name = substr(rest, 1, RLENGTH)
+                    sub(/[.]+$/, "", name)
+                    # Not "print (…) …": BusyBox awk misreads a print that
+                    # starts with a parenthesis.
+                    tag = (numbered == 1) ? FNR : "-"
+                    if (name != "") print tag "\t" kind name
+                }
+                s = rest
+            }
+        }
+        /^[[:space:]]*[#;]/ { next }
+        { scan($0, "/opt/"); scan($0, "/Cellar/"); scan($0, "/bin/"); scan($0, "/sbin/") }'
+}
+
+# The formula a path of the prefix belongs to: opt/<name> and bin/<name>
+# through their link into the Cellar, Cellar/<name> as is. Empty for a
+# command in <prefix>/bin that isn't Homebrew's link (or whose link is
+# gone: no way to tell whose it was).
+# settings_formula_of <prefix> </opt/name | /Cellar/name | /bin/name | /sbin/name>
+settings_formula_of() {
+    local prefix=$1 token=$2 target
+    case "${token}" in
+        /Cellar/*)
+            printf '%s' "${token#/Cellar/}"
+            return 0
+            ;;
+    esac
+    target=$(readlink "${prefix}${token}" 2>/dev/null || true)
+    if [[ "${target}" == *Cellar/* ]]; then
+        target=${target#*Cellar/}
+        printf '%s' "${target%%/*}"
+    elif [[ "${token}" == /opt/* ]]; then
+        printf '%s' "${token#/opt/}"
+    fi
+    return 0
+}
+
+# settings_grep <grep pattern options…>: the NUL-separated file names on
+# stdin that contain one of the patterns, one per line. grep runs on 200
+# names at a time: find's "-exec grep {} +" isn't used, since how and when
+# it runs its last batch differs between find implementations (BusyBox
+# skips it inside parentheses).
+settings_grep() {
+    local f
+    local -a batch=()
+    while IFS= read -r -d '' f; do
+        batch+=("${f}")
+        if ((${#batch[@]} >= 200)); then
+            grep -lF "$@" -- "${batch[@]}" 2>/dev/null || true
+            batch=()
+        fi
+    done
+    if ((${#batch[@]} > 0)); then
+        grep -lF "$@" -- "${batch[@]}" 2>/dev/null || true
+    fi
+    return 0
+}
+
+# The configuration files that mention the prefix, one per line (a name
+# with a newline in it is ignored by the caller: it finds no such file).
+# find fails on a folder it can't read: what it could read is kept.
+settings_files() {
+    local prefix=$1 d
+    local -a roots=() needles=()
+    needles=(-e "${prefix}/opt/" -e "${prefix}/Cellar/" -e "${prefix}/bin/" -e "${prefix}/sbin/")
+    # Dotfiles right in the home directory.
+    find "${HOME}" -mindepth 1 -maxdepth 1 -type f -name '.*' -size -1024k \
+        ! -name '.DS_Store' ! -name '.*history*' ! -name '.lesshst' ! -name '.viminfo' ! -name '.zcompdump*' \
+        ! -name '*.bak' ! -name '*.orig' ! -name '*.old' ! -name '*.save' ! -name '*.swp' \
+        ! -name '*.backup*' ! -name '*.before-*' ! -name '*~' \
+        -print0 2>/dev/null | settings_grep "${needles[@]}" || true
+    for d in "${HOME}/.config" "${HOME}/.ssh" "${HOME}/.gnupg" \
+        "${HOME}/Library/Application Support" "${HOME}/Library/Preferences" "${HOME}/Library/LaunchAgents" \
+        "${DOCTOR_ROOT}/Library/LaunchAgents" "${DOCTOR_ROOT}/Library/LaunchDaemons"; do
+        [[ -d "${d}" ]] && roots+=("${d}")
+    done
+    ((${#roots[@]} > 0)) || return 0
+    # homebrew.mxcl.*: brew services' own files, checked on their own
+    # (brew_service_plist).
+    find "${roots[@]}" -maxdepth 5 \
+        -type d \( -name '[Cc]ache*' -o -name '*Cache' -o -name 'CachedData' -o -name '[Ll]ogs' \
+        -o -name '*[Ss]ession*' -o -name '[Ee]xtensions' -o -name 'node_modules' -o -name '.git' \
+        -o -name '[Bb]ackup*' -o -name 'History' -o -name 'IndexedDB' -o -name 'Local Storage' \
+        -o -name 'Service Worker' -o -name 'blob_storage' -o -name 'Crashpad' \
+        -o -name 'workspaceStorage' -o -name 'globalStorage' \
+        -o -name 'com.apple.*' -o -name 'AddressBook' -o -name 'CallHistory*' -o -name 'MobileSync' \
+        -o -name 'CloudDocs' -o -name 'Knowledge' -o -name 'FileProvider' \) -prune -o \
+        -type f -size -1024k \
+        \( -name '*.json' -o -name '*.jsonc' -o -name '*.ini' -o -name '*.conf' -o -name '*.plist' \
+        -o -name '*.toml' -o -name '*.yml' -o -name '*.yaml' -o -name '*.cfg' -o -name 'config' \
+        -o -name '*rc' -o -name '.*' \) \
+        ! -name '.DS_Store' ! -name 'com.apple.*' ! -name 'homebrew.mxcl.*' \
+        ! -name '*.bak' ! -name '*.orig' ! -name '*.old' ! -name '*.save' ! -name '*.swp' \
+        ! -name '*.backup*' ! -name '*.before-*' ! -name '*~' \
+        -print0 2>/dev/null | settings_grep "${needles[@]}" || true
+}
+
+# settings_scan <brew prefix>: fills SETTINGS_HITS, once per run. Call it
+# from the main shell, not from $( ): the result is kept in globals.
+#   - a binary plist has no lines: its text is cut at every byte that
+#     isn't printable ASCII (an octal range, not [:print:]: BusyBox's tr
+#     may be built without classes), and the hit carries no line number;
+#   - in the shell startup files, opt/ and Cellar/ paths are left to
+#     shell_rc_refs (they block a migration); only bin/ ones are new here.
+settings_scan() {
+    [[ "${SETTINGS_SCANNED}" != true ]] || return 0
+    SETTINGS_SCANNED=true
+    SETTINGS_HITS=""
+    local prefix=$1 file where line token rc is_rc formula
+    [[ -n "${prefix}" ]] || return 0
+    while IFS= read -r file; do
+        [[ -f "${file}" ]] || continue
+        where=${file}
+        [[ "${file}" != "${HOME}/"* ]] || where="~${file#"${HOME}"}"
+        is_rc=false
+        for rc in "${SHELL_RC_FILES[@]}"; do
+            [[ "${file}" != "${HOME}/${rc}" ]] || is_rc=true
+        done
+        while IFS=$'\t' read -r line token; do
+            [[ -n "${token}" ]] || continue
+            [[ "${line}" != - ]] || line=""
+            [[ "${is_rc}" != true || "${token}" == /bin/* || "${token}" == /sbin/* ]] || continue
+            formula=$(settings_formula_of "${prefix}" "${token}")
+            SETTINGS_HITS+="${formula:-?}"$'\t'"${where}${line:+:${line}}"$'\t'"${prefix}${token}"$'\n'
+        done < <(
+            if [[ "$(head -c 6 "${file}" 2>/dev/null)" == bplist ]]; then
+                LC_ALL=C tr -c '\040-\176\n' '\n' <"${file}" 2>/dev/null | settings_tokens "${prefix}" 0
+            else
+                settings_tokens "${prefix}" 1 <"${file}" 2>/dev/null
+            fi | sort -u
+        )
+    done < <(settings_files "${prefix}" | sort -u)
+    if command -v crontab >/dev/null 2>&1; then
+        while IFS=$'\t' read -r line token; do
+            [[ -n "${token}" ]] || continue
+            formula=$(settings_formula_of "${prefix}" "${token}")
+            SETTINGS_HITS+="${formula:-?}"$'\t'"crontab:${line}"$'\t'"${prefix}${token}"$'\n'
+        done < <(crontab -l 2>/dev/null | settings_tokens "${prefix}" 1 | sort -u || true)
+    fi
+    log_detail "Settings naming a path of ${prefix}: $(count_lines "${SETTINGS_HITS}")"
+    return 0
+}
+
+# settings_refs <formula>: "<where><TAB><path>" of every setting found
+# that names a path of that formula. settings_scan must have run.
+settings_refs() {
+    awk -F'\t' -v f="${1##*/}" '$1 == f { print $2 "\t" $3 }' <<<"${SETTINGS_HITS}" | sort -u
+}
+
+# settings_macports_path <path>: the MacPorts command a <prefix>/bin or
+# sbin path can be replaced with, when MacPorts has one of that name.
+settings_macports_path() {
+    local cmd=${1##*/} d
+    case "$1" in */bin/* | */sbin/*) ;; *) return 0 ;; esac
+    for d in bin sbin; do
+        if [[ -e "${PORT_PREFIX}/${d}/${cmd}" ]]; then
+            printf '%s' "${PORT_PREFIX}/${d}/${cmd}"
+            return 0
+        fi
+    done
+}
+
+# k. Settings that already point to a Homebrew path that is gone. A dead
+#    opt/ or Cellar/ path was Homebrew's for sure; a dead <prefix>/bin
+#    one only counts when MacPorts has a command of that name (what a
+#    migration leaves). On Intel the prefix is /usr/local, where other
+#    installers put commands too: the others are only logged.
+doctor_settings() {
+    local prefix=$1 formula where path new n=0 unsure=0 i=0
+    local -a fix=()
+    settings_scan "${prefix}"
+    while IFS=$'\t' read -r formula where path; do
+        [[ -n "${path}" && ! -e "${path}" ]] || continue
+        new=$(settings_macports_path "${path}")
+        case "${path}" in
+            "${prefix}"/opt/* | "${prefix}"/Cellar/*) ;;
+            *)
+                if [[ -z "${new}" ]]; then
+                    unsure=$((unsure + 1))
+                    log_detail "Setting naming a missing path (not known to be Homebrew's): ${where}: ${path}"
+                    continue
+                fi
+                ;;
+        esac
+        n=$((n + 1))
+        log_detail "Setting naming a Homebrew path that is gone: ${where}: ${path}"
+        if ((i++ < 10)); then
+            fix+=("${where}: ${path}${new:+   → ${new}}")
+        fi
+    done <<<"${SETTINGS_HITS}"
+    if ((n == 0)); then
+        ok "Settings: none found naming a Homebrew path that is gone (dotfiles, ~/.config, app settings, launch agents and daemons, crontab)."
+    else
+        ((n <= 10)) || fix+=("… $((n - 10)) more, see the log")
+        fix+=("Change each one in its file (or in the app's settings) to the path that replaces it.")
+        doctor_problem "${n}" "${n} setting(s) name a Homebrew path that no longer exists: what uses them fails." "${fix[@]}"
+    fi
+    ((unsure == 0)) ||
+        info "${C_DIM}${unsure} more setting(s) name a path in ${prefix}/bin that doesn't exist, maybe not Homebrew's: listed in the log.${C_RESET}"
+}
+
+# ----------------------------------------------------------------------------
 # --doctor
 # ----------------------------------------------------------------------------
 # Always returns 0 (see main): the verdict is in DOCTOR_RC.
@@ -721,6 +970,7 @@ doctor_run() {
         doctor_cellar_empty "${prefix}"
         doctor_npm "${prefix}"
         doctor_untrusted_casks
+        doctor_settings "${prefix}"
     fi
     if [[ "${HAS_PORT}" == true ]]; then
         doctor_port_requested

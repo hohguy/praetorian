@@ -386,6 +386,7 @@ Status and cleanup:
                 why, removable leftovers, and the last sessions.
   --doctor      Read-only health check: broken pipx environments, files
                 Homebrew can't clean, dead PATH entries, broken links,
+                settings that name a Homebrew path that is gone,
                 ports MacPorts could remove by mistake… with the command
                 that fixes each one.
   --prune       Removes the Homebrew dependencies nothing uses any more
