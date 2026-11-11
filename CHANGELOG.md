@@ -27,6 +27,15 @@ have none.
   formula's line, `--migrate` warns before the install and lists the
   lines again after the uninstall with the MacPorts path, and `--doctor`
   reports the settings whose Homebrew path is already gone.
+- Free disk space is checked again before each formula upgrade, not
+  only before the session: the source downloads and every build eat into
+  it. Below the minimum (5 GB), the formulae left and the casks are
+  skipped, `brew autoremove` and `brew cleanup` still run, and a block
+  lists what wasn't upgraded.
+- With `HOMEBREW_NO_INSTALL_CLEANUP` set, Homebrew no longer removes an
+  upgraded formula's old version: praetorian now runs `brew cleanup
+  <formula>` after each upgrade instead of leaving it to the final
+  cleanup.
 
 ### Fixed
 
