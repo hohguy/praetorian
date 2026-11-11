@@ -151,7 +151,7 @@ MacPorts also needs Xcode or at least the Command Line Tools, even though it mos
 | `mdls` (Spotlight) | Last-used date of apps in `/Applications` |
 | `osascript` | End-of-session notification (unattended, sessions of 5 minutes or more, `--notify`) |
 | `pmset` | Power source check (`--ac-power-only`) |
-| `launchctl`, `plutil` | `praetorian-schedule`: loading the job, checking its plist |
+| `launchctl`, `plutil` | `praetorian-schedule`: loading the job, checking its plist; `plutil` also reads the binary plists found by the settings search (`--doctor`, `--migration-report`, `--migrate`) |
 
 `--doctor`, `--prune`, `--migrate` and `--sbom` also look at `pipx` environments and `npm` global packages when those are installed, and `--sbom` summarizes what `trivy` finds when it is installed. None of them is required: a missing one is skipped and said so.
 
@@ -311,7 +311,7 @@ Those places can't all be listed, so praetorian searches the likely ones, read-o
 
 | Searched | Skipped |
 |---|---|
-| dotfiles in your home directory; `~/.config`, `~/.ssh`, `~/.gnupg`; `~/Library/Application Support`, `~/Library/Preferences`, `~/Library/LaunchAgents`; `/Library/LaunchAgents`, `/Library/LaunchDaemons`; your crontab | anything that isn't a configuration file under 1 MB (`json`, `ini`, `conf`, `plist`, `toml`, `yml`, `cfg`, `config`, `*rc`, dotfiles); cache, log, session, extension, history and backup folders; backup copies (`*.bak`, `*.orig`, `.zprofile.before-…`); the folders macOS protects (`com.apple.*`, Contacts, call history); commented lines; `homebrew.mxcl.*` (step 3) |
+| dotfiles in your home directory; `~/.config`, `~/.ssh`, `~/.gnupg`; `~/Library/Application Support`, `~/Library/Preferences`, `~/Library/LaunchAgents`; `/Library/LaunchAgents`, `/Library/LaunchDaemons`; your crontab | anything that isn't a configuration file under 1 MB (`json`, `ini`, `conf`, `plist`, `toml`, `yml`, `cfg`, `config`, `*rc`, dotfiles); cache, log, session, extension, history and backup folders; backup copies (`*.bak`, `*.orig`, `.zprofile.before-…`, and `.zprofile.macports-saved_…` made by the MacPorts installer); the folders macOS protects (`com.apple.*`, Contacts, call history); commented lines; `homebrew.mxcl.*` (step 3) |
 
 It takes well under a second to a few seconds, and it can't prove that nothing is left, so what it finds never blocks:
 
