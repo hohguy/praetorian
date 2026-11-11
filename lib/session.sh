@@ -413,9 +413,24 @@ check_prerequisites() {
 }
 
 # Disk space: a build (node, openjdk…) or a MacPorts upgrade can use
-# several GB of temporary space.
+# several GB of temporary space. Checked before anything runs
+# (check_disk_space), then again before each formula's upgrade
+# (disk_space_ok): the source downloads and each build eat into it.
+DISK_MIN_GB=5   # minimum, read from MIN_FREE_GB by check_disk_space
+DISK_FREE_GB="" # free space at the last check, GB
+
+# free_space_gb: free space on the volume of HOME (where Homebrew,
+# MacPorts and the temporary files live), in whole GB; nothing when df
+# can't say.
+free_space_gb() {
+    local avail_kb
+    avail_kb=$(df -Pk "${HOME}" 2>/dev/null | awk 'NR == 2 {print $4}')
+    [[ "${avail_kb}" =~ ^[0-9]+$ ]] || return 0
+    echo $((avail_kb / 1048576))
+}
+
 check_disk_space() {
-    local avail_kb gb min=${MIN_FREE_GB}
+    local gb min=${MIN_FREE_GB}
     # MIN_FREE_GB comes from the environment (PRAETORIAN_MIN_FREE_GB): a
     # non-number inside (( )) would be evaluated as an expression, which
     # can run commands ("a[$(cmd)]"). Digits only, read as decimal.
@@ -425,12 +440,14 @@ check_disk_space() {
         warn "PRAETORIAN_MIN_FREE_GB is not a whole number of GB: default 5 GB used."
         min=5
     fi
-    avail_kb=$(df -Pk "${HOME}" 2>/dev/null | awk 'NR == 2 {print $4}')
-    if [[ ! "${avail_kb}" =~ ^[0-9]+$ ]]; then
+    DISK_MIN_GB=${min}
+    gb=$(free_space_gb)
+    if [[ -z "${gb}" ]]; then
         warn "Free disk space unknown (unreadable df output): check skipped."
         return 0
     fi
-    gb=$((avail_kb / 1048576))
+    # shellcheck disable=SC2034  # read by maintenance_brew (brew.sh)
+    DISK_FREE_GB=${gb}
     log_detail "Free space: ${gb} GB"
     if ((gb < min)); then
         if [[ "${DRY_RUN}" == true ]]; then
@@ -449,6 +466,20 @@ check_disk_space() {
     elif ((gb < WARN_FREE_GB)); then
         warn "Only ${gb} GB free: a big build could fill the disk."
     fi
+}
+
+# disk_space_ok: true while the free space is still at least DISK_MIN_GB
+# (sets DISK_FREE_GB). True too when df can't say (the first check
+# already warned), and on a dry-run, which builds nothing.
+disk_space_ok() {
+    local gb
+    [[ "${DRY_RUN}" != true ]] || return 0
+    gb=$(free_space_gb)
+    [[ -n "${gb}" ]] || return 0
+    # shellcheck disable=SC2034  # read by maintenance_brew (brew.sh)
+    DISK_FREE_GB=${gb}
+    log_detail "Free space: ${gb} GB"
+    ((gb >= DISK_MIN_GB))
 }
 
 # --ac-power-only (set by praetorian-schedule): on battery, a session that

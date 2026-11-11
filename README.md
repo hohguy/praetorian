@@ -407,6 +407,7 @@ praetorian never stops silently. Every block prints the same five parts, even wi
 | No Homebrew and no MacPorts | whole session (exit 1) | nothing to maintain |
 | Xcode installed but not ready | whole session (exit 1) | builds fail or hang forever |
 | Less than 5 GB free | whole session (exit 1) | a full disk mid-install leaves half-installed packages |
+| Less than 5 GB free before one of the formula upgrades | the formulae left and the casks; `brew autoremove` and `brew cleanup` still run | the source downloads and each build eat into the space checked at the start |
 | Unattended and still no network after 5 minutes (`github.com` doesn't answer) | whole session (exit 1), before the lock; with `--dry-run`, a warning | `brew update` fails and every download retries for nothing ([decision 23](#23-wait-for-the-network-before-starting)) |
 | Another praetorian session running | whole session (exit 1) | two brew/port runs on the same packages corrupt them. See [the session lock](#the-session-lock) for how a lock left by a crashed session is taken over |
 | `PRAETORIAN_HOME` not an absolute path, or containing a newline | whole session (exit 1), before anything is written | a relative path would follow the current directory |
@@ -531,7 +532,9 @@ Maintenance Homebrew (skipped if Homebrew is absent)
    3. show quarantine
    4. formulae: list outdated (minus quarantine)
         → brew fetch --deps   (download everything first)
-        → upgrade one by one   (auto-fix + one retry on known failures)
+        → upgrade one by one   (auto-fix + one retry on known failures;
+                                free space checked before each one: below
+                                5 GB, the rest and the casks are skipped)
    5. casks: repair interrupted upgrades, list outdated (minus quarantine)
         → upgrade one by one   (sudo deferred in unattended mode)
    6. brew autoremove
@@ -673,6 +676,8 @@ Also: if brew returns an error but the new version **is** installed (no longer l
 Before any formula upgrade, praetorian runs `brew fetch --formula --deps <all outdated>`.
 
 *Why:* a network glitch then fails in seconds, during the download, instead of after an hour of compiling when brew fetches a resource at the very end. It also lets the auto-fix above retry a download without rebuilding blindly.
+
+Those downloads, and every build's temporary files, use space the check before the session didn't count. So the free space is checked again before each formula: below the minimum (5 GB), praetorian stops upgrading formulae, skips the casks, still runs `brew autoremove` and `brew cleanup`, and blocks with the list of formulae left. Homebrew removes an upgraded formula's old version by itself (`brew cleanup <formula>` at the end of `brew upgrade`); with `HOMEBREW_NO_INSTALL_CLEANUP` set it doesn't, and praetorian runs that `brew cleanup <formula>` itself after each upgrade.
 
 ### 6. Keep build logs before cleanup
 
