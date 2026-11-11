@@ -9,7 +9,7 @@
 # installed. The fakes of tests/stubs replace brew, port, sudo,
 # osascript, launchctl and pmset, as in the container; HOME is a temp directory.
 #
-# Usage: ci/macos-tests [bats options]
+# Usage: ci/macos-tests [bats options] [tests/<file>.bats …]
 #        ci/macos-tests --jobs 6   (parallel run: needs GNU parallel)
 #
 set -euo pipefail
@@ -57,6 +57,15 @@ fi
 # The tests set up their own HOME and prefixes: a value from your shell
 # (PRAETORIAN_HOME pointing at your real state, for one) must not leak in.
 unset PRAETORIAN_HOME PRAETORIAN_PORT_PREFIX PRAETORIAN_SUDO_LOCAL PRAETORIAN_MIN_FREE_GB PRAETORIAN_CAFFEINATED PRAETORIAN_NOTIFY_AFTER PRAETORIAN_NETWORK_WAIT PRAETORIAN_DOCTOR_ROOT
-# Every tests/*.bats file is run: bats takes the whole directory.
+# Every tests/*.bats file is run: bats takes the whole directory. Given
+# test files, only those: with the directory too, bats runs each of them
+# twice, and the run fails.
+targets=("${ROOT}/tests")
+for arg in "$@"; do
+    if [[ "${arg}" == *.bats && -f "${arg}" ]]; then
+        targets=()
+        break
+    fi
+done
 echo "bash: $(bash --version | head -n 1)"
-/bin/bash "${WORK}/bats/bin/bats" --print-output-on-failure "$@" "${ROOT}/tests"
+/bin/bash "${WORK}/bats/bin/bats" --print-output-on-failure "$@" ${targets[@]+"${targets[@]}"}
