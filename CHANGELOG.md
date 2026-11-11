@@ -80,6 +80,11 @@ have none.
   `<` or `>` as written in the plist (`&amp;`), and found no log there.
 - `ci/macos-tests tests/<file>.bats` ran the whole suite and that file
   a second time. Given test files, it now runs only those.
+- Two homepages of one project were compared as different:
+  `git-lfs.github.com` (the old form of a GitHub Pages address, read as
+  `git-lfs.github.io`: now inconclusive against `git-lfs.com`) and
+  `gi.readthedocs.io/en/latest/` (the language and version of a Read the
+  Docs path are ignored: now the same as `gi.readthedocs.io`).
 
 ### Security
 
