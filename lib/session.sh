@@ -416,7 +416,7 @@ check_prerequisites() {
 # several GB of temporary space. Checked before anything runs
 # (check_disk_space), then again before each formula's upgrade
 # (disk_space_ok): the source downloads and each build eat into it.
-DISK_MIN_GB=5  # minimum, read from MIN_FREE_GB by check_disk_space
+DISK_MIN_GB=5   # minimum, read from MIN_FREE_GB by check_disk_space
 DISK_FREE_GB="" # free space at the last check, GB
 
 # free_space_gb: free space on the volume of HOME (where Homebrew,
@@ -446,6 +446,7 @@ check_disk_space() {
         warn "Free disk space unknown (unreadable df output): check skipped."
         return 0
     fi
+    # shellcheck disable=SC2034  # read by maintenance_brew (brew.sh)
     DISK_FREE_GB=${gb}
     log_detail "Free space: ${gb} GB"
     if ((gb < min)); then
@@ -475,6 +476,7 @@ disk_space_ok() {
     [[ "${DRY_RUN}" != true ]] || return 0
     gb=$(free_space_gb)
     [[ -n "${gb}" ]] || return 0
+    # shellcheck disable=SC2034  # read by maintenance_brew (brew.sh)
     DISK_FREE_GB=${gb}
     log_detail "Free space: ${gb} GB"
     ((gb >= DISK_MIN_GB))
