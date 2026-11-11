@@ -80,6 +80,9 @@ have none.
   `<` or `>` as written in the plist (`&amp;`), and found no log there.
 - `ci/macos-tests tests/<file>.bats` ran the whole suite and that file
   a second time. Given test files, it now runs only those.
+- The "no precompiled MacPorts binary" block gave examples from one Mac
+  ("every mysql port on this Mac") on every Mac. They're gone from the
+  message; the README keeps them, for macOS 15 on Intel.
 
 ### Security
 
