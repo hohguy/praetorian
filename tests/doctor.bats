@@ -644,3 +644,26 @@ fake_pkgutil() {
     [[ "${output}" == *"crontab:1: ${BREW_PREFIX}/bin/gh   → ${PRAETORIAN_PORT_PREFIX}/bin/gh"* ]] || false
     [[ "${output}" == *"~/Library/Preferences/TeXShop.plist: ${BREW_PREFIX}/bin/ps2pdf   → ${PRAETORIAN_PORT_PREFIX}/bin/ps2pdf"* ]] || false
 }
+
+@test "doctor: a binary plist written by plutil → a path followed by another string read whole" {
+    local plist="${HOME}/Library/Preferences/TeXShop.plist"
+    mkdir -p "${HOME}/Library/Preferences" "${PRAETORIAN_PORT_PREFIX}/bin"
+    : >"${PRAETORIAN_PORT_PREFIX}/bin/dvipdf"
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n<key>a</key><string>%s/bin/dvipdf</string>\n<key>b</key><string>default</string>\n</dict>\n</plist>\n' \
+        "${BREW_PREFIX}" >"${plist}"
+    # A real binary plist needs the real plutil (macOS): the stub of the
+    # Linux container only lints. Cut at its non-printable bytes, this one
+    # reads ".../bin/dvipdfWdefault" ("W": the marker of a 7-byte string).
+    plutil -convert binary1 "${plist}" 2>/dev/null || skip "no plutil to write a binary plist"
+    run_doctor
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"~/Library/Preferences/TeXShop.plist: ${BREW_PREFIX}/bin/dvipdf   → ${PRAETORIAN_PORT_PREFIX}/bin/dvipdf"* ]] || false
+}
+
+@test "doctor: the MacPorts installer's backup copy of a shell file (.macports-saved_…) → not read" {
+    printf 'export PATH="%s/opt/python@3.12/bin:/usr/bin"\n' "${BREW_PREFIX}" \
+        >"${HOME}/.zprofile.macports-saved_2026-11-03_at_08:28:33"
+    run_doctor
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Settings: none found naming a Homebrew path that is gone"* ]] || false
+}

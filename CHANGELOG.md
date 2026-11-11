@@ -26,7 +26,9 @@ have none.
   `<prefix>/bin`. Never a block: `--migration-report` notes it on the
   formula's line, `--migrate` warns before the install and lists the
   lines again after the uninstall with the MacPorts path, and `--doctor`
-  reports the settings whose Homebrew path is already gone.
+  reports the settings whose Homebrew path is already gone. A binary
+  plist is read with `plutil`, and the MacPorts installer's backup copies
+  (`.zprofile.macports-saved_…`) are skipped.
 - Free disk space is checked again before each formula upgrade, not
   only before the session: the source downloads and every build eat into
   it. Below the minimum (5 GB), the formulae left and the casks are

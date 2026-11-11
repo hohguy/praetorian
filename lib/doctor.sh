@@ -716,7 +716,8 @@ doctor_clt_headers() {
 # (or sbin). Only configuration files (by name: json, ini, conf, plist,
 # toml, yml, cfg, "config", *rc, dotfiles) under 1 MB; cache, log,
 # session, extension and backup folders are skipped, and so are backup
-# copies of files (.zprofile.before-…) and the folders macOS protects
+# copies of files (.zprofile.before-…, and the MacPorts installer's
+# .zprofile.macports-saved_<date>) and the folders macOS protects
 # (asking for Contacts to read a path would be absurd). Unfiltered, the
 # same search takes a minute and a half and finds chat logs.
 #
@@ -814,7 +815,7 @@ settings_files() {
     find "${HOME}" -mindepth 1 -maxdepth 1 -type f -name '.*' -size -1024k \
         ! -name '.DS_Store' ! -name '.*history*' ! -name '.lesshst' ! -name '.viminfo' ! -name '.zcompdump*' \
         ! -name '*.bak' ! -name '*.orig' ! -name '*.old' ! -name '*.save' ! -name '*.swp' \
-        ! -name '*.backup*' ! -name '*.before-*' ! -name '*~' \
+        ! -name '*.backup*' ! -name '*.before-*' ! -name '*.macports-saved_*' ! -name '*~' \
         -print0 2>/dev/null | settings_grep "${needles[@]}" || true
     for d in "${HOME}/.config" "${HOME}/.ssh" "${HOME}/.gnupg" \
         "${HOME}/Library/Application Support" "${HOME}/Library/Preferences" "${HOME}/Library/LaunchAgents" \
@@ -838,22 +839,25 @@ settings_files() {
         -o -name '*rc' -o -name '.*' \) \
         ! -name '.DS_Store' ! -name 'com.apple.*' ! -name 'homebrew.mxcl.*' \
         ! -name '*.bak' ! -name '*.orig' ! -name '*.old' ! -name '*.save' ! -name '*.swp' \
-        ! -name '*.backup*' ! -name '*.before-*' ! -name '*~' \
+        ! -name '*.backup*' ! -name '*.before-*' ! -name '*.macports-saved_*' ! -name '*~' \
         -print0 2>/dev/null | settings_grep "${needles[@]}" || true
 }
 
 # settings_scan <brew prefix>: fills SETTINGS_HITS, once per run. Call it
 # from the main shell, not from $( ): the result is kept in globals.
-#   - a binary plist has no lines: its text is cut at every byte that
-#     isn't printable ASCII (an octal range, not [:print:]: BusyBox's tr
-#     may be built without classes), and the hit carries no line number;
+#   - a binary plist has no lines: plutil turns it into XML, and the hit
+#     carries no line number. Without plutil (Linux) or when it refuses
+#     the file, its text is cut at every byte that isn't printable ASCII
+#     (an octal range, not [:print:]: BusyBox's tr may be built without
+#     classes); a path can then keep the next string glued to it, since
+#     the marker byte of a short string is printable (0x50-0x5F);
 #   - in the shell startup files, opt/ and Cellar/ paths are left to
 #     shell_rc_refs (they block a migration); only bin/ ones are new here.
 settings_scan() {
     [[ "${SETTINGS_SCANNED}" != true ]] || return 0
     SETTINGS_SCANNED=true
     SETTINGS_HITS=""
-    local prefix=$1 file where line token rc is_rc formula
+    local prefix=$1 file where line token rc is_rc formula xml
     [[ -n "${prefix}" ]] || return 0
     while IFS= read -r file; do
         [[ -f "${file}" ]] || continue
@@ -871,7 +875,13 @@ settings_scan() {
             SETTINGS_HITS+="${formula:-?}"$'\t'"${where}${line:+:${line}}"$'\t'"${prefix}${token}"$'\n'
         done < <(
             if [[ "$(head -c 6 "${file}" 2>/dev/null)" == bplist ]]; then
-                LC_ALL=C tr -c '\040-\176\n' '\n' <"${file}" 2>/dev/null | settings_tokens "${prefix}" 0
+                # plutil prints its error on stdout: its output only
+                # counts when it succeeds.
+                if xml=$(plutil -convert xml1 -o - -- "${file}" 2>/dev/null); then
+                    printf '%s\n' "${xml}"
+                else
+                    LC_ALL=C tr -c '\040-\176\n' '\n' <"${file}" 2>/dev/null
+                fi | settings_tokens "${prefix}" 0
             else
                 settings_tokens "${prefix}" 1 <"${file}" 2>/dev/null
             fi | sort -u
