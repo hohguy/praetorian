@@ -74,9 +74,9 @@ one port per `port` call inside one sudo, without `-p`.
 | O | A block message gives a machine-specific example ("every mysql port on this Mac") | Issue | planned |
 | P | The progress line isn't cleared before the ✓; MacPorts' "ports you installed have notes" isn't shown | Issue | planned |
 | S | The report flags the same project under an old and a new homepage address | Issue | planned |
-| U | Disk use during a long formula upgrade: free space is checked only at the start and `brew cleanup` runs only at the end (suggest `brew cleanup <formula>` after each upgrade, a free-space check before each formula, and on low space: stop, skip the casks, still clean up) | Issue (feature request) | planned, after round 2 |
-| V | CONTRIBUTING step 4 says to add the CHANGELOG line to "the top entry (the version being prepared)", but each release removes `## Unreleased` and the maintainer recreates it by hand (#14, #17) | Issue (question: say "under `## Unreleased`, create it if missing"?) | planned |
-| W | `ci/macos-tests tests/<file>.bats` runs the file twice (the script always adds `tests`), and the copies collide ("File exists", "setup_file failed"); fix: add `tests` only when no file or folder is given | Issue + PR | planned |
+| U | Disk use during a long formula upgrade: free space is checked only at the start and `brew cleanup` runs only at the end (suggest `brew cleanup <formula>` after each upgrade, a free-space check before each formula, and on low space: stop, skip the casks, still clean up) | Issue (feature request) | posted: [#24](https://github.com/victor-sys-admin/praetorian/issues/24) (PR offered) |
+| V | CONTRIBUTING step 4 says to add the CHANGELOG line to "the top entry (the version being prepared)", but each release removes `## Unreleased` and the maintainer recreates it by hand (#14, #17) | Issue (question) | done by the maintainer on main (CONTRIBUTING step 4 now says "Unreleased", created when missing) |
+| W | `ci/macos-tests tests/<file>.bats` runs the file twice (the script always adds `tests`), and the copies collide ("File exists", "setup_file failed"); fix: add `tests` only when no file or folder is given | Issue + PR | posted: [#25](https://github.com/victor-sys-admin/praetorian/issues/25), PR [#26](https://github.com/victor-sys-admin/praetorian/pull/26) |
 | I2 | The report doesn't check guessed port names (`node` → `nodejs22`) for `replaced_by`; `--migrate` does | Offered in PR #19 (merged without a reply to the offer) | planned |
 
 Items G to L are features that may not fit a project that is "small on
