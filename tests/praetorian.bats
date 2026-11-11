@@ -289,7 +289,8 @@ EOF
 
 @test "HOMEBREW_NO_INSTALL_CLEANUP: brew cleanup <formula> after each upgrade; without it, left to brew" {
     export BREW_OUTDATED_FORMULA=$'foo\nbar'
-    run "${PRAETORIAN}"
+    # Not inherited: GitHub's macOS runners set it in every job.
+    run env -u HOMEBREW_NO_INSTALL_CLEANUP "${PRAETORIAN}"
     [ "${status}" -eq 0 ]
     run grep -E '^cleanup (foo|bar)$' "${BREW_CALLS}"
     [ "${status}" -eq 1 ]
