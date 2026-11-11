@@ -240,6 +240,67 @@ with_macports() {
     [ ! -s "${BREW_CALLS}" ]
 }
 
+# with_fake_df <kB> <kB>…: a df in front of the PATH whose free space is
+# each value in turn, one per call (the last one stays). The first call is
+# the check before the session, then one before each formula.
+with_fake_df() {
+    local dir="${BATS_TEST_TMPDIR}/df_bin"
+    export DF_SEQ="${BATS_TEST_TMPDIR}/df_seq"
+    printf '%s\n' "$@" >"${DF_SEQ}"
+    mkdir -p "${dir}"
+    cat >"${dir}/df" <<'EOF'
+#!/usr/bin/env bash
+kb=$(head -n 1 "${DF_SEQ}")
+if [[ "$(wc -l <"${DF_SEQ}" | tr -d ' ')" -gt 1 ]]; then
+    tail -n +2 "${DF_SEQ}" >"${DF_SEQ}.next"
+    mv "${DF_SEQ}.next" "${DF_SEQ}"
+fi
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/disk1s1 999999999 1 ${kb} 1% /"
+EOF
+    chmod 755 "${dir}/df"
+    export PATH="${dir}:${PATH}"
+}
+
+@test "disk runs low between two formulae: loop stopped, the rest listed, casks skipped, cleanup still run" {
+    # 100 GB at the start and before foo, then 1 GB before bar (minimum 5).
+    with_fake_df 104857600 104857600 1048576
+    export BREW_OUTDATED_FORMULA=$'foo\nbar\nbaz' BREW_OUTDATED_CASK=app
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    grep -qx 'upgrade --formula foo' "${BREW_CALLS}"
+    run grep -E '^upgrade --(formula (bar|baz)|cask)' "${BREW_CALLS}"
+    [ "${status}" -eq 1 ]
+    grep -qx 'autoremove' "${BREW_CALLS}"
+    grep -qx 'cleanup --prune=all' "${BREW_CALLS}"
+    run cat "${LOGS}"/praetorian_*.log
+    [[ "${output}" == *"BLOCKED: disk space ran low during the formula upgrades (1 GB free, minimum 5 GB)"* ]] || false
+    [[ "${output}" == *"Not upgraded: bar baz. The casks were skipped too."* ]] || false
+    [[ "${output}" == *"Apps (casks) skipped: not enough disk space"* ]] || false
+}
+
+@test "disk runs low: not on a dry-run, which builds nothing" {
+    with_fake_df 104857600 1048576
+    export BREW_OUTDATED_FORMULA=$'foo\nbar'
+    run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"disk space ran low"* ]] || false
+}
+
+@test "HOMEBREW_NO_INSTALL_CLEANUP: brew cleanup <formula> after each upgrade; without it, left to brew" {
+    export BREW_OUTDATED_FORMULA=$'foo\nbar'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    run grep -E '^cleanup (foo|bar)$' "${BREW_CALLS}"
+    [ "${status}" -eq 1 ]
+    : >"${BREW_CALLS}"
+    rm -f "${BREW_CALLS}.state"*
+    HOMEBREW_NO_INSTALL_CLEANUP=1 run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    run grep -E '^(upgrade --formula|cleanup) (foo|bar)$' "${BREW_CALLS}"
+    [ "${output}" = $'upgrade --formula foo\ncleanup foo\nupgrade --formula bar\ncleanup bar' ]
+}
+
 # --- MacPorts ------------------------------------------------------------------
 
 @test "MacPorts: selfupdate then upgrade of the outdated ports, through sudo" {
