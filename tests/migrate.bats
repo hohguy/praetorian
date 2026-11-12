@@ -623,6 +623,107 @@ with_brew_gh() {
     [ "${status}" -eq 1 ]
 }
 
+# Homepages that differ, the sites asked with consent. foo's homepage
+# forwards to its port's; bar's two homepages both lead to a parked page.
+homepages_moved_setup() {
+    export BREW_LEAVES=$'foo\nbar'
+    export PORT_AVAILABLE="foo bar"
+    export BREW_HOMEPAGES="foo=https://foo.example.com/ bar=https://bar.dev"
+    export PORT_INFO="foo=1.0_0,https://foo.dev/,MIT bar=1.0_0,https://www.kde.org,MIT"
+    export CURL_REDIRECTS="https://foo.example.com/=https://foo.dev/ https://bar.dev=https://parked.example/ https://www.kde.org=https://parked.example/"
+    export CURL_HOMEPAGE_URLS="${BATS_TEST_TMPDIR}/homepage_urls"
+    : >"${CURL_HOMEPAGE_URLS}"
+}
+
+# report_answering <answer>: the report as from a terminal, the answer
+# read on fd 3 (as prune_confirm does).
+report_answering() {
+    printf '%s\n' "$1" >"${BATS_TEST_TMPDIR}/answers"
+    bash -c "source '${PRAETORIAN}'; check_prerequisites; UNATTENDED=false; exec 3<'${BATS_TEST_TMPDIR}/answers'; migration_report"
+}
+
+@test "--migration-report --allow-project-site-requests: a homepage that forwards to the other → same name, noted, not for --migrate-all; two that lead to a third page → still different" {
+    homepages_moved_setup
+    run "${PRAETORIAN}" --allow-project-site-requests --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"[y/N]"* ]] || false
+    [[ "${output}" == *"Same name in MacPorts (1)"* ]] || false
+    [[ "${output}" == *"- foo (homepage moved: https://foo.example.com/ and https://foo.dev/ lead to the same page)"* ]] || false
+    [[ "${output}" != *"migrates the 1 of them"* ]] || false
+    [[ "${output}" == *"Same name, but maybe a different project (1)"* ]] || false
+    [[ "${output}" == *"bar (Homebrew: https://bar.dev — MacPorts: https://www.kde.org)"* ]] || false
+    [[ "${output}" != *"praetorian --allow-project-site-requests --migration-report asks"* ]] || false
+    grep -qx 'https://foo.example.com/' "${CURL_HOMEPAGE_URLS}"
+}
+
+@test "--migration-report without a terminal nor --allow-project-site-requests → no question, no request, the option suggested" {
+    homepages_moved_setup
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"[y/N]"* ]] || false
+    [[ "${output}" == *"Same name, but maybe a different project (2)"* ]] || false
+    [[ "${output}" == *"praetorian --allow-project-site-requests --migration-report asks the project sites"* ]] || false
+    [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+}
+
+@test "--migration-report on a terminal: asked once; \"y\" → the sites asked, \"n\" or nothing → none" {
+    homepages_moved_setup
+    run report_answering y
+    [[ "${output}" == *"2 formula(e) have a MacPorts port with the same name but another homepage:"* ]] || false
+    [[ "${output}" == *"only those sites are contacted"* ]] || false
+    [ "$(grep -c '\[y/N\]' <<<"${output}")" -eq 1 ]
+    [[ "${output}" == *"- foo (homepage moved: "* ]] || false
+    [ -s "${CURL_HOMEPAGE_URLS}" ]
+    local answer
+    for answer in n ""; do
+        : >"${CURL_HOMEPAGE_URLS}"
+        run report_answering "${answer}"
+        [[ "${output}" == *"[y/N]"* ]] || false
+        [[ "${output}" == *"Same name, but maybe a different project (2)"* ]] || false
+        [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+    done
+}
+
+@test "--migrate: a homepage that forwards to the other → not blocked with --allow-project-site-requests; blocked without, the option suggested; a dry run asks nothing" {
+    export BREW_LIST_FILES="/usr/local/Cellar/foo/1.0/bin/foo"
+    export PORT_AVAILABLE="foo" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/foo" PORT_FILES="foo=bin/foo"
+    export BREW_HOMEPAGES="foo=https://foo.example.com/" PORT_INFO="foo=1.0_0,https://foo.dev/,MIT"
+    export CURL_REDIRECTS="https://foo.example.com/=https://foo.dev/"
+    export CURL_HOMEPAGE_URLS="${BATS_TEST_TMPDIR}/homepage_urls"
+    : >"${CURL_HOMEPAGE_URLS}"
+    run "${PRAETORIAN}" --migrate foo
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: foo may not be the same software as foo"* ]] || false
+    [[ "${output}" == *"praetorian --allow-project-site-requests --migrate foo"* ]] || false
+    [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+
+    run "${PRAETORIAN}" --dry-run --migrate foo
+    [[ "${output}" == *"a real run would offer to ask both project sites whether one forwards to the other"* ]] || false
+    [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+
+    run "${PRAETORIAN}" --allow-project-site-requests --migrate foo
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Same project: foo and foo: one homepage forwards to the other (https://foo.example.com/, https://foo.dev/)"* ]] || false
+    [[ "${output}" == *"foo migrated to MacPorts (foo)."* ]] || false
+    grep -qx 'https://foo.example.com/' "${CURL_HOMEPAGE_URLS}"
+}
+
+@test "--migrate-all --allow-project-site-requests: a homepage that only forwards to the other → not taken, no request" {
+    export BREW_LEAVES=$'wget\nfoo'
+    export BREW_LIST_FILES=$'/usr/local/Cellar/wget/1.25/bin/wget\n/usr/local/Cellar/foo/1.0/bin/foo'
+    export PORT_AVAILABLE="wget foo" PORT_FILES="wget=bin/wget foo=bin/foo"
+    export BREW_HOMEPAGES="wget=https://www.gnu.org/software/wget/ foo=https://foo.example.com/"
+    export PORT_INFO="wget=1.0_0,https://www.gnu.org/software/wget/,GPL foo=1.0_0,https://foo.dev/,MIT"
+    export CURL_REDIRECTS="https://foo.example.com/=https://foo.dev/"
+    export CURL_HOMEPAGE_URLS="${BATS_TEST_TMPDIR}/homepage_urls"
+    : >"${CURL_HOMEPAGE_URLS}"
+    run "${PRAETORIAN}" --allow-project-site-requests --migrate-all
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"nothing blocking: wget"* ]] || false
+    [[ "${output}" != *"foo: migrated"* ]] || false
+    [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+}
+
 @test "--migration-report: obsolete same-name port → its replacement, not counted for --migrate-all" {
     export BREW_LEAVES=$'docbook-xsl\nwget'
     export PORT_AVAILABLE="docbook-xsl docbook-xsl-nons wget" PORT_REPLACED_BY="docbook-xsl=docbook-xsl-nons"
