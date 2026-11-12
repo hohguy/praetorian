@@ -283,8 +283,9 @@ homepage_verdict() {
             sub(/(^|\/)index\.(html?|php)$/, "", p); sub(/\.(html?|php)$/, "", p); sub(/\/+$/, "", p)
             # GitHub Pages sites were once <name>.github.com, now
             # <name>.github.io: the old form is read as the new one
-            # (git-lfs.github.com, still a MacPorts homepage).
-            if (h ~ /^[a-z0-9-]+\.github\.com$/) sub(/\.github\.com$/, ".github.io", h)
+            # (git-lfs.github.com, still a MacPorts homepage). The other
+            # GitHub sites (gist, docs, api…) are not Pages sites: kept as is.
+            if (h ~ /^[a-z0-9-]+\.github\.com$/ && h !~ /^(gist|docs|api|raw|help|status|support|education|enterprise|developer|skills)\./) sub(/\.github\.com$/, ".github.io", h)
             # A docs host: the subdomain names the project, the path only
             # the language and version (gi.readthedocs.io/en/latest/).
             if (h ~ /\.readthedocs\.io$/) sub(/^[a-z][a-z](-[a-z]+)?\/(latest|stable|v?[0-9][^\/]*)(\/|$)/, "", p)
