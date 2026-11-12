@@ -235,13 +235,16 @@ save_port_logs() {
 # After "port -p upgrade": whatever is still outdated failed.
 # MacPorts ends an install or upgrade with "Some of the ports you installed
 # have notes:" and the notes, which only reach the log: says which ports
-# have some, and how to read them.
+# have some, and the command that shows them.
 port_notes_hint() {
-    local names
-    names=$(strip_ansi <<<"$1" | sed -nE 's/^ *([^ ]+) has the following notes:$/\1/p' | sort -u | tr '\n' ' ')
-    names=${names% }
-    [[ -n "${names}" ]] || return 0
-    info "MacPorts has notes for ${names// /, }: port notes ${names} shows them, and they're in the log."
+    local -a names=()
+    local n
+    while IFS= read -r n; do names+=("${n}"); done < <(strip_ansi <<<"$1" |
+        sed -nE 's/^ *([^ ]+) has the following notes:$/\1/p' | sort -u)
+    ((${#names[@]} > 0)) || return 0
+    local list="${names[*]}"
+    info "MacPorts has notes for ${list// /, }"
+    say "    ${C_DIM}To read them: port notes $(shq_all "${names[@]}")${C_RESET}"
 }
 
 # port_check_upgrade <counter before> port…
