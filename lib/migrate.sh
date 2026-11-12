@@ -1145,6 +1145,7 @@ migrate_install() {
         before=${STEP_FAIL}
         run_step "Installing ${q} with MacPorts" \
             "${SUDO_CMD[@]}" "${PORT_BIN}" -N install "${q}"
+        [[ "${DRY_RUN}" == true ]] || port_notes_hint "${STEP_OUT}"
         step_failed_since "${before}" || continue
         save_port_logs "${STEP_OUT}"
         if is_sudo_auth_failure "${STEP_OUT}"; then
