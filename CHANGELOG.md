@@ -99,6 +99,11 @@ have none.
 
 - CI: the two jobs stop after 60 minutes instead of GitHub's 6 hours,
   and Dependabot proposes updates of the actions pinned by commit.
+- Each step waited at least 2 seconds, the interval at which its output
+  is copied to the log and the progress line redrawn, even when the
+  command ended at once (`port select`, `brew link`…). The first second
+  is now checked every 0.5 s: short steps end sooner, and so do the
+  tests. Longer steps are unchanged.
 
 ## 1.5.2 - 2026-11-09
 
