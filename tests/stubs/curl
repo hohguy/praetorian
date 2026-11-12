@@ -16,6 +16,10 @@
 # (default 22; macOS's own curl 8.7.1 over HTTP/2 exits 56 instead).
 # $CURL_HTTP_ERROR (e.g. 503): every archive answers that code instead.
 #
+# Homepages (-w '%{http_code} %{url_effective}', any other URL): 200 at
+# the URL itself, or where $CURL_REDIRECTS ("from=to …") sends it. The
+# URLs asked for go to $CURL_HOMEPAGE_URLS, when set.
+#
 set -u
 url=${!#}
 fail=false want_code=false
@@ -41,6 +45,13 @@ if [[ "${url}" == https://packages.macports.org/* ]]; then
     [[ "${CURL_PACKAGES}" != offline ]] || answer 000 28
     [[ " ${CURL_PACKAGES} " != *" ${url##*/} "* ]] || answer 200 0
     answer 404 "${CURL_404_RC:-22}"
+fi
+if [[ " $* " == *" %{http_code} %{url_effective} "* ]]; then
+    [[ -z "${CURL_HOMEPAGE_URLS:-}" ]] || printf '%s\n' "${url}" >>"${CURL_HOMEPAGE_URLS}"
+    final=${url}
+    for entry in ${CURL_REDIRECTS:-}; do [[ "${entry%%=*}" != "${url}" ]] || final=${entry#*=}; done
+    printf '200 %s' "${final}"
+    exit 0
 fi
 if [[ -n "${CURL_DOWN_FOR:-}" ]]; then
     echo x >>"${CURL_CALLS}"
