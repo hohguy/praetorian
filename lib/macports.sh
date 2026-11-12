@@ -233,6 +233,17 @@ save_port_logs() {
 }
 
 # After "port -p upgrade": whatever is still outdated failed.
+# MacPorts ends an install or upgrade with "Some of the ports you installed
+# have notes:" and the notes, which only reach the log: says which ports
+# have some, and how to read them.
+port_notes_hint() {
+    local names
+    names=$(strip_ansi <<<"$1" | sed -nE 's/^ *([^ ]+) has the following notes:$/\1/p' | sort -u | tr '\n' ' ')
+    names=${names% }
+    [[ -n "${names}" ]] || return 0
+    info "MacPorts has notes for ${names// /, }: port notes ${names} shows them, and they're in the log."
+}
+
 # port_check_upgrade <counter before> port…
 port_check_upgrade() {
     local before=$1 step_out=${STEP_OUT} p pairs culprits detail
@@ -346,7 +357,10 @@ maintenance_macports() {
         before=${STEP_FAIL}
         run_step "Upgrading ${#ports[@]} MacPorts port(s)" \
             "${SUDO_CMD[@]}" "${PORT_BIN}" -N -p upgrade "${ports[@]}"
-        [[ "${DRY_RUN}" == true ]] || port_check_upgrade "${before}" "${ports[@]}"
+        if [[ "${DRY_RUN}" != true ]]; then
+            port_notes_hint "${STEP_OUT}"
+            port_check_upgrade "${before}" "${ports[@]}"
+        fi
     fi
 
     # Old versions deactivated by upgrades: only when there are some (no
