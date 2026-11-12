@@ -83,6 +83,10 @@ have none.
 - The "no precompiled MacPorts binary" block gave examples from one Mac
   ("every mysql port on this Mac") on every Mac. They're gone from the
   message; the README keeps them, for macOS 15 on Intel.
+- The notes MacPorts gives after installing or upgrading a port ("Some
+  of the ports you installed have notes") only reached the log. The
+  ports that have some are now named, with the `port notes` command
+  that shows them.
 
 ### Security
 
