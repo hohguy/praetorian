@@ -87,6 +87,8 @@ in_praetorian() {
         "mismatch https://pypi.org/project/foo https://pypi.org/project/bar"
         "mismatch https://metacpan.org/pod/Foo https://metacpan.org/pod/Bar"
         "mismatch https://cli.github.com https://desktop.github.com"
+        "mismatch https://gist.github.com/alice/1 https://github.com/gist/foo"
+        "mismatch https://docs.github.com/foo https://github.com/docs/bar"
         "mismatch https://alice.github.io https://bob.github.io"
         "mismatch https://foo.readthedocs.io/en/stable/ https://bar.readthedocs.io"
         "mismatch https://gitlab.gnome.org/GNOME/foo https://gitlab.gnome.org/GNOME/bar"
