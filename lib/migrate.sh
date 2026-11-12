@@ -1099,7 +1099,7 @@ migrate_check_binary() {
         hints+=("${sibling} has a binary: praetorian --migrate ${f}=${alt}")
     done
     block "no precompiled MacPorts binary of ${nobin[*]} for this Mac" \
-        "packages.macports.org has no archive of ${nobin[*]} for $(binary_platform): MacPorts would compile from source, which may take hours or fail (e.g. nodejs26, every mysql port on this Mac)." \
+        "packages.macports.org has no archive of ${nobin[*]} for $(binary_platform): MacPorts would compile from source, which may take hours or fail." \
         "Nothing was done: no MacPorts install, no uninstall. ${f} stays in Homebrew." \
         "${hints[@]+"${hints[@]}"}" \
         "Compile anyway: praetorian --allow-build --migrate ${MIGRATE_SPEC}" \
