@@ -83,6 +83,11 @@ have none.
 - The "no precompiled MacPorts binary" block gave examples from one Mac
   ("every mysql port on this Mac") on every Mac. They're gone from the
   message; the README keeps them, for macOS 15 on Intel.
+- Two homepages of one project were compared as different:
+  `git-lfs.github.com` (the old form of a GitHub Pages address, read as
+  `git-lfs.github.io`: now inconclusive against `git-lfs.com`) and
+  `gi.readthedocs.io/en/latest/` (the language and version of a Read the
+  Docs path are ignored: now the same as `gi.readthedocs.io`).
 - The notes MacPorts gives after installing or upgrading a port ("Some
   of the ports you installed have notes") only reached the log. The
   ports that have some are now named, with the `port notes` command
