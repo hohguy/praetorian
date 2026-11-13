@@ -99,6 +99,10 @@ have none.
   of the ports you installed have notes") only reached the log. The
   ports that have some are now named, with the `port notes` command
   that shows them.
+- A progress line wider than the terminal (a long label and MacPorts'
+  "Attempting to fetch … from https://…" in an 80-column window) wrapped,
+  and each redraw left its first screen line behind. It's now cut to the
+  terminal's width.
 
 ### Security
 
