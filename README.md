@@ -139,7 +139,7 @@ MacPorts also needs Xcode or at least the Command Line Tools, even though it mos
 | `id` | Owner check of the `lib/` files before they're loaded |
 | `tar` | Archiving Homebrew and MacPorts build logs before cleanup |
 | `df` | Free disk space check |
-| `date`, `sleep`, `uname`, `sw_vers` | Timestamps, progress line, Intel detection, macOS version in the log |
+| `date`, `sleep`, `stty`, `uname`, `sw_vers` | Timestamps, progress line and its width, Intel detection, macOS version in the log |
 | `pgrep`, `kill`, `ps` | Stopping the whole process tree on Ctrl-C; checking that the PID in the lock is a running praetorian |
 | `caffeinate` | Keeping the Mac awake during a session |
 | `xcode-select`, `xcodebuild` | Xcode readiness check; Metal Toolchain download |
@@ -706,6 +706,8 @@ Each brew or port command runs in the background and writes to a temp file. Ever
 ```
   12:34 Upgrading formula gstreamer — ==> meson compile …
 ```
+
+The line is cut to the terminal's width (`stty size`), so it stays on one screen line: a line that wrapped couldn't be redrawn in place, as `\r` only goes back to the start of the last screen line.
 
 The original stdin is saved on fd 3 and passed to the command, so sudo can still prompt. The progress line only appears once the command has printed something: until then, sudo may be waiting for a password in the same terminal.
 
