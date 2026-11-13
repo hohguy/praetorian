@@ -35,6 +35,9 @@ Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 | Item | Change | Kind | Status |
 |---|---|---|---|
 | F | `ci/macos-tests --jobs N` with GNU parallel, for contributors (the app itself doesn't use it) | Issue + PR | merged: [#16](https://github.com/victor-sys-admin/praetorian/issues/16), PR [#17](https://github.com/victor-sys-admin/praetorian/pull/17) |
+| Z | Every step lasts at least 2 seconds, as `run_step` notices the end of a step only every 2 s; proposed: check every 0.5 s during a step's first second (measured: the three slowest tests 129 s → 73 s; the whole suite with `--jobs 4` 1031 s → 932 s) | Issue + PR | posted: [#38](https://github.com/victor-sys-admin/praetorian/issues/38), PR [#39](https://github.com/victor-sys-admin/praetorian/pull/39) |
+| F2 | CI runs the tests one at a time; `--jobs` in CI (the bats container has GNU parallel, the macOS runner doesn't) | Issue (his decision) | posted: [#40](https://github.com/victor-sys-admin/praetorian/issues/40) |
+| Y | Two tests assume a session under a minute and fail under load: "notify: unattended success" and "lock whose PID was reused by another program" | PR, if wanted | planned: offered in #40 |
 
 ### Round 3: migration correctness
 
@@ -59,7 +62,9 @@ Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 
 B waits for [MacPorts #74668](https://trac.macports.org/ticket/74668)
 (`port -b -p upgrade` on a forced rebuild compiles the port, then leaves
-it uninstalled). Until a fixed MacPorts is released, `extras` upgrades
+it uninstalled). A fix is proposed in
+[macports-base PR #425](https://github.com/macports/macports-base/pull/425)
+(2026-11-13). Until a MacPorts release includes a fix, `extras` upgrades
 one port per `port` call inside one sudo, without `-p`.
 
 ### Later, depending on the response
@@ -71,9 +76,11 @@ one port per `port` call inside one sudo, without `-p`.
 | J | coreutils: MacPorts installs `g`-prefixed names; not in the known-traps table | Issue | dropped: Homebrew's coreutils uses the same `g` names and `libexec/gnubin`; a `gnubin` PATH line is already blocked |
 | K | A dry run can't predict a dependency with no binary; a failed binary-only install leaves the dependencies it already installed | Issue | planned |
 | L | Test-suite run time | Issue | folded into F (timings in #16 and #17) |
-| O | A block message gives a machine-specific example ("every mysql port on this Mac") | Issue + PR | posted: [#30](https://github.com/victor-sys-admin/praetorian/issues/30), PR [#31](https://github.com/victor-sys-admin/praetorian/pull/31) |
-| P | The progress line isn't cleared before the ✓; MacPorts' "ports you installed have notes" isn't shown | Issue | checked on ddfca70: the notes part still applies (nothing reads "ports you installed have notes"); the progress part is likely the line wrapping past 80 columns, as `\r\033[K` clears one screen line: reproduce before filing |
-| S | The report flags the same project under an old and a new homepage address | Issue (maybe PR) | still applies on ddfca70 (`git-lfs.com` vs `git-lfs.github.com`), and also `gi.readthedocs.io/en/latest/` vs `gi.readthedocs.io`; following redirects (`curl -sIL`, final URL) resolves both |
+| O | A block message gives a machine-specific example ("every mysql port on this Mac") | Issue + PR | merged: [#30](https://github.com/victor-sys-admin/praetorian/issues/30), PR [#31](https://github.com/victor-sys-admin/praetorian/pull/31) (2026-11-11) |
+| P1 | MacPorts' "ports you installed have notes" only reaches the log; proposed: name the ports that have notes, with the `port notes` command that shows them | Issue + PR | posted: [#36](https://github.com/victor-sys-admin/praetorian/issues/36), PR [#37](https://github.com/victor-sys-admin/praetorian/pull/37) |
+| P2 | The progress line isn't cleared before the ✓, likely when it wraps past 80 columns (`\r\033[K` clears one screen line) | Issue | planned: reproduce at 80 columns before filing |
+| S1 | The report flags one project as two: a Read the Docs version path (`gi.readthedocs.io/en/latest/`), the old GitHub Pages form (`git-lfs.github.com`) | Issue + PR | merged: [#32](https://github.com/victor-sys-admin/praetorian/issues/32), PR [#33](https://github.com/victor-sys-admin/praetorian/pull/33) (2026-11-12) |
+| S2 | The same for a project that moved to another domain; proposed: ask the project sites whether one forwards to the other, with consent | Issue + PR | posted: [#34](https://github.com/victor-sys-admin/praetorian/issues/34), PR [#35](https://github.com/victor-sys-admin/praetorian/pull/35) |
 | U | Disk use during a long formula upgrade: free space is checked only at the start and `brew cleanup` runs only at the end (suggest `brew cleanup <formula>` after each upgrade, a free-space check before each formula, and on low space: stop, skip the casks, still clean up) | Issue (feature request) | done by the maintainer: [#24](https://github.com/victor-sys-admin/praetorian/issues/24), his PR [#27](https://github.com/victor-sys-admin/praetorian/pull/27), merged 2026-11-11 |
 | V | CONTRIBUTING step 4 says to add the CHANGELOG line to "the top entry (the version being prepared)", but each release removes `## Unreleased` and the maintainer recreates it by hand (#14, #17) | Issue (question) | done by the maintainer on main (CONTRIBUTING step 4 now says "Unreleased", created when missing) |
 | W | `ci/macos-tests tests/<file>.bats` runs the file twice (the script always adds `tests`), and the copies collide ("File exists", "setup_file failed"); fix: add `tests` only when no file or folder is given | Issue + PR | merged: [#25](https://github.com/victor-sys-admin/praetorian/issues/25), PR [#26](https://github.com/victor-sys-admin/praetorian/pull/26) |
