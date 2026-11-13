@@ -662,6 +662,26 @@ in_praetorian() {
     [ "${output}" = $'a\nc' ]
 }
 
+@test "unit: progress_line fits on one screen line" {
+    local action="--->  Attempting to fetch foo-1.2.3_0.darwin_24.x86_64.tbz2 from https://packages.macports.org/foo"
+    # A line that fits is unchanged.
+    run in_praetorian "progress_line 80 125 'Upgrading 1 MacPorts port(s)' '--->  Building foo' | strip_ansi"
+    [ "${output}" = "  02:05 Upgrading 1 MacPorts port(s) — --->  Building foo" ]
+    # A longer one is cut to the width, less one column (79 characters).
+    run in_praetorian "progress_line 80 125 'Upgrading 1 MacPorts port(s)' '${action}' | strip_ansi"
+    [ "${output}" = "  02:05 Upgrading 1 MacPorts port(s) — --->  Attempting to fetch foo-1.2.3_0.da" ]
+    # Past 99 minutes, the longer time is counted.
+    run in_praetorian "progress_line 80 6005 'Upgrading 1 MacPorts port(s)' '${action}' | strip_ansi"
+    [ "${output}" = "  100:05 Upgrading 1 MacPorts port(s) — --->  Attempting to fetch foo-1.2.3_0.d" ]
+    # Too narrow for the label: the label is cut, the action left out.
+    run in_praetorian "progress_line 30 125 'Upgrading 1 MacPorts port(s)' '${action}' | strip_ansi"
+    [ "${output}" = "  02:05 Upgrading 1 MacPorts " ]
+    # Narrower still: no error, the time only.
+    run in_praetorian "progress_line 5 125 'Upgrading' 'x' | strip_ansi"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "  02:05  " ]
+}
+
 # --- Dry-run changes nothing ---------------------------------------------------
 
 @test "dry-run: quarantine.tsv left untouched, even with expired entries" {
