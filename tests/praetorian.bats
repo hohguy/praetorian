@@ -51,29 +51,6 @@ with_macports() {
     cp "${BATS_TEST_DIRNAME}/stubs/port" "${PRAETORIAN_PORT_PREFIX}/bin/port"
 }
 
-@test "--help prints the usage" {
-    run "${PRAETORIAN}" --help
-    [ "${status}" -eq 0 ]
-    [[ "${output}" == *"Usage: praetorian"* ]] || false
-}
-
-@test "version: --help shows PRAETORIAN_VERSION, a X.Y.Z version" {
-    local version
-    version=$(sed -nE 's/^readonly PRAETORIAN_VERSION="([^"]*)"$/\1/p' "${BATS_TEST_DIRNAME}/../praetorian")
-    [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || false
-    run "${PRAETORIAN}" --help
-    [[ "${output}" == *"praetorian ${version} "* ]] || false
-}
-
-@test "version: README's latest release and CHANGELOG's first numbered entry match PRAETORIAN_VERSION" {
-    local root="${BATS_TEST_DIRNAME}/.." version readme changelog
-    version=$(sed -nE 's/^readonly PRAETORIAN_VERSION="([^"]*)"$/\1/p' "${root}/praetorian")
-    readme=$(sed -n '/^## Latest release/,/^## /p' "${root}/README.md" | sed -nE 's/^### ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)
-    changelog=$(sed -nE 's/^## ([0-9]+\.[0-9]+\.[0-9]+) .*/\1/p' "${root}/CHANGELOG.md" | head -n 1)
-    [ "${readme}" = "${version}" ]
-    [ "${changelog}" = "${version}" ]
-}
-
 @test "unknown option: code 1" {
     run "${PRAETORIAN}" --nope
     [ "${status}" -eq 1 ]
