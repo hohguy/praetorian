@@ -158,6 +158,31 @@ EOF
     [ -z "$(find "${LOGS}" -name 'praetorian_*_portlogs.tar.gz')" ]
 }
 
+@test "MacPorts: upgrade with port notes → the ports named, and the command that shows them" {
+    export PORT_OUTDATED="wget foo" PORT_OUTDATED_AFTER=""
+    export PORT_UPGRADE_OUTPUT=$'--->  Some of the ports you installed have notes:\n  wget has the following notes:\n    A note.\n  foo has the following notes:\n    Another note.'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"MacPorts has notes for foo, wget"* ]] || false
+    [[ "${output}" == *"To read them: port notes foo wget"* ]] || false
+}
+
+@test "MacPorts: upgrade without port notes → no notes line" {
+    export PORT_OUTDATED="wget" PORT_OUTDATED_AFTER=""
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"MacPorts has notes"* ]] || false
+}
+
+@test "--migrate: install with port notes → the port named, and the command that shows them" {
+    wget_formula
+    export PORT_INSTALL_OUTPUT=$'--->  Some of the ports you installed have notes:\n  wget has the following notes:\n    A note.'
+    run "${PRAETORIAN}" --migrate wget
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"MacPorts has notes for wget"* ]] || false
+    [[ "${output}" == *"To read them: port notes wget"* ]] || false
+}
+
 @test "MacPorts: selfupdate refused for another macOS → blocked, no upgrade" {
     export PORT_SELFUPDATE_RC=1 PORT_OUTDATED="wget"
     export PORT_SELFUPDATE_OUTPUT='Error: Current platform "darwin 25" does not match expected platform "darwin 24"'

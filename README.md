@@ -549,6 +549,7 @@ Maintenance MacPorts (skipped if MacPorts is absent)
       port and every directory above it owned by root, writable by root only? otherwise blocked
    2. sudo port selfupdate
    3. port outdated (minus quarantine) → sudo port -p upgrade <list> → port outdated again
+      ports with notes ("have notes") named, with the port notes command that shows them
    4. sudo port uninstall inactive   (only if any)
    5. report port echo leaves
    │

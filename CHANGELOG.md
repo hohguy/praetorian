@@ -95,6 +95,10 @@ have none.
   `git-lfs.github.io`: now inconclusive against `git-lfs.com`) and
   `gi.readthedocs.io/en/latest/` (the language and version of a Read the
   Docs path are ignored: now the same as `gi.readthedocs.io`).
+- The notes MacPorts gives after installing or upgrading a port ("Some
+  of the ports you installed have notes") only reached the log. The
+  ports that have some are now named, with the `port notes` command
+  that shows them.
 
 ### Security
 
