@@ -98,6 +98,28 @@ trap on_exit EXIT
 # ----------------------------------------------------------------------------
 # Running a step, with its full output in the log
 # ----------------------------------------------------------------------------
+# progress_line <columns> <seconds> <label> <current>: the progress line of
+# a step, "  MM:SS label — current", cut to fit on one screen line. \r only
+# goes back to the start of the last screen line, so a line that wraps
+# can't be redrawn in place. One column is kept spare, for a character
+# shown two columns wide (🍺).
+progress_line() {
+    local columns=$1 label=$3 current=$4 time room
+    time=$(printf '%02d:%02d' $(($2 / 60)) $(($2 % 60)))
+    # "  " + time + " " before the label, " — " before the current action.
+    room=$((columns - 1 - 3 - ${#time} - ${#label} - 3))
+    if ((room > 0)); then
+        current=${current:0:room}
+    else
+        current=""
+        room=$((columns - 1 - 3 - ${#time} - 1))
+        ((room > 0)) || room=0
+        label=${label:0:room}
+    fi
+    printf '  %s%s%s %s %s' "${C_DIM}" "${time}" "${C_RESET}" "${label}" \
+        "${C_DIM}${current:+— ${current}}${C_RESET}"
+}
+
 # run_step "Readable label" cmd arg1 arg2 ...
 # Does NOT make the script fail on error: records it and moves on.
 run_step() {
@@ -122,7 +144,7 @@ run_step() {
     [[ -n "${STEP_TMP}" ]] || STEP_TMP=$(mktemp -t praetorian)
     : >"${STEP_TMP}"
     CURRENT_STEP=${label}
-    local rc=0 start offset=0 size elapsed current polls=0
+    local rc=0 start offset=0 size elapsed current polls=0 columns
     start=$(date +%s)
     set +e
     "$@" <&3 >"${STEP_TMP}" 2>&1 &
@@ -140,8 +162,9 @@ run_step() {
         if [[ -t 1 && "${QUIET}" != true && "${SHOW_PROGRESS}" == true ]] && ((size > 0)); then
             elapsed=$(($(date +%s) - start))
             current=$(grep -E '^(==>|🍺|--->)' "${STEP_TMP}" | tail -n 1 | strip_ansi | cut -c1-70)
-            printf '\r\033[K  %s%02d:%02d%s %s %s' "${C_DIM}" $((elapsed / 60)) $((elapsed % 60)) \
-                "${C_RESET}" "${label}" "${C_DIM}${current:+— ${current}}${C_RESET}"
+            columns=$(stty size </dev/tty 2>/dev/null) || columns=""
+            columns=${columns#* }
+            printf '\r\033[K%s' "$(progress_line "${columns:-80}" "${elapsed}" "${label}" "${current}")"
         fi
     done
     wait "${STEP_PID}"
