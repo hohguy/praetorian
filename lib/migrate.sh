@@ -346,6 +346,64 @@ homepage_verdict() {
         BEGIN { print verdict() }'
 }
 
+# Homepages that differ may still be one project that moved: its old
+# address usually forwards to the new one. Asking the sites sends a
+# request to each, so only with your consent (homepage_consent).
+HOMEPAGE_CONSENT="" # yes or no, once decided in the session
+HOMEPAGE_ASK_MAX=10 # formulae whose homepages the report asks about
+
+# homepage_consent <question> [<line>…]: true when the project sites of
+# differing homepages may be asked: --allow-project-site-requests, or "y"
+# to the question, asked once per session, on a terminal (the lines
+# first, to say why). A dry run, or no terminal, without the option: no.
+homepage_consent() {
+    local question=$1 line
+    shift
+    if [[ -z "${HOMEPAGE_CONSENT}" ]]; then
+        if [[ "${ALLOW_PROJECT_SITE_REQUESTS}" == true ]]; then
+            HOMEPAGE_CONSENT=yes
+        elif [[ "${DRY_RUN}" == true || "${UNATTENDED}" == true ]]; then
+            HOMEPAGE_CONSENT=no
+        else
+            for line in "$@"; do say "${line}"; done
+            if prune_confirm "${question}"; then HOMEPAGE_CONSENT=yes; else HOMEPAGE_CONSENT=no; fi
+        fi
+    fi
+    [[ "${HOMEPAGE_CONSENT}" == yes ]]
+}
+
+# homepage_final <url>: where the homepage leads once its redirects are
+# followed (5 at most), only when that page answers 2xx; nothing
+# otherwise (no curl, no network, an error page, a site that refuses
+# HEAD). A HEAD request over https only, like the binary check: the page
+# isn't downloaded, and an http:// homepage is asked over https.
+homepage_final() {
+    local out=""
+    if [[ -z "$1" ]] || ! command -v curl >/dev/null 2>&1; then
+        return 0
+    fi
+    out=$(curl -sSIL --proto =https --max-redirs 5 --max-time "${BINARY_CHECK_TIMEOUT}" \
+        -o /dev/null -w '%{http_code} %{url_effective}' "https://${1#*://}" 2>>"${LOG_FILE}") || true
+    log_detail "Homepage: $1 → ${out:-no answer}"
+    if [[ "${out}" =~ ^2[0-9][0-9]\ (.+)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    fi
+    return 0
+}
+
+# homepage_moved <url> <url>: true when one homepage, its redirects
+# followed, is the other one as written (homepage_verdict "match"):
+# git-lfs.github.com → git-lfs.com. Two homepages that both lead to a
+# third page (a parked domain) prove nothing. Asks the first site, then
+# the second only when needed.
+homepage_moved() {
+    local final
+    final=$(homepage_final "$1")
+    [[ -n "${final}" && "$(homepage_verdict "${final}" "$2")" == match ]] && return 0
+    final=$(homepage_final "$2")
+    [[ -n "${final}" && "$(homepage_verdict "$1" "${final}")" == match ]]
+}
+
 # ----------------------------------------------------------------------------
 # Precompiled binaries on packages.macports.org
 #
@@ -554,6 +612,11 @@ PLAN_BINARY_SKIPPED=0       # not checked (limit reached, or offline)
 PLAN_BINARY_OFFLINE=false   # packages.macports.org didn't answer
 readonly PLAN_BINARY_MAX=40 # ports checked at most by one report
 
+# The report's differing homepages, kept until plan_resolve_differ: one
+# "formula US brew homepage US port homepage US notes US settings note"
+# each (US: the unit separator, \037; a tab would merge empty fields).
+declare -a PLAN_DIFFER_RAW=()
+
 # plan_binary_note <port>…: sets PLAN_BNOTE to " [no binary for this Mac:
 # <ports>]" for the ports packages.macports.org has no archive of, empty
 # otherwise (a global, not printed: the counters must survive). Bounded:
@@ -589,7 +652,7 @@ plan_binary_note() {
 migration_classify() {
     local check_binaries=${1:-}
     PLAN_LEAVES="" PLAN_HAS_NOTES=false PLAN_HAS_SETTINGS=false
-    PLAN_SAME=() PLAN_DIFFER=() PLAN_APPROX=() PLAN_NONE=() PLAN_READY=()
+    PLAN_SAME=() PLAN_DIFFER=() PLAN_APPROX=() PLAN_NONE=() PLAN_READY=() PLAN_DIFFER_RAW=()
     if [[ "${HAS_PORT}" != true ]]; then
         block "MacPorts isn't installed" \
             "The plan compares your Homebrew formulae with the available MacPorts ports: it needs MacPorts and its index." \
@@ -669,6 +732,12 @@ migration_classify() {
                 continue
             fi
             verdict=$(homepage_verdict "${brew_hp}" "${port_hp}")
+            if [[ "${verdict}" == mismatch && "${check_binaries}" == binaries ]]; then
+                # The report: settled after the loop, with one question
+                # for all of them (plan_resolve_differ).
+                PLAN_DIFFER_RAW+=("${f}"$'\037'"${brew_hp}"$'\037'"${port_hp}"$'\037'"${notes}"$'\037'"${snote}")
+                continue
+            fi
             if [[ "${verdict}" == mismatch ]]; then
                 [[ -z "${notes}" ]] || PLAN_HAS_NOTES=true
                 PLAN_DIFFER+=("${f} ${C_DIM}(Homebrew: ${brew_hp} — MacPorts: ${port_hp})${C_RESET}${notes}${snote}")
@@ -696,7 +765,51 @@ migration_classify() {
             fi
         fi
     done <<<"${PLAN_LEAVES}"
+    plan_resolve_differ
     return 0
+}
+
+# plan_resolve_differ: the report's formulae whose homepages differ
+# (PLAN_DIFFER_RAW). With consent (homepage_consent: one question for
+# all, at most HOMEPAGE_ASK_MAX formulae asked), one whose homepage
+# forwards to the other goes under "Same name", noted, never in
+# --migrate-all's list (which doesn't ask); the others, and all of them
+# without consent, under "maybe a different project".
+plan_resolve_differ() {
+    local n=${#PLAN_DIFFER_RAW[@]} entry f bhp php notes snote asked=0 more ask=false
+    ((n > 0)) || return 0
+    local -a lines=()
+    for entry in "${PLAN_DIFFER_RAW[@]}"; do
+        IFS=$'\037' read -r f bhp php notes snote <<<"${entry}"
+        if ((${#lines[@]} < HOMEPAGE_ASK_MAX)); then
+            lines+=("      ${f}   Homebrew: ${bhp}   MacPorts: ${php}")
+        fi
+    done
+    more=""
+    ((n <= HOMEPAGE_ASK_MAX)) || more=" (the first ${HOMEPAGE_ASK_MAX})"
+    if homepage_consent "Ask them?" \
+        "? ${n} formula(e) have a MacPorts port with the same name but another homepage${more}:" \
+        "${lines[@]}" \
+        "  When a project moves, its old address usually forwards to the new one." \
+        "  praetorian can ask the projects' sites where they forward to: at most 2" \
+        "  requests per formula, nothing downloaded, and only those sites are contacted." \
+        "  If you say no, these formulae stay under \"maybe a different project\"."; then
+        ask=true
+    fi
+    for entry in "${PLAN_DIFFER_RAW[@]}"; do
+        IFS=$'\037' read -r f bhp php notes snote <<<"${entry}"
+        if [[ "${ask}" == true ]] && ((asked < HOMEPAGE_ASK_MAX)); then
+            asked=$((asked + 1))
+            if homepage_moved "${bhp}" "${php}"; then
+                plan_binary_note "${f}"
+                [[ -z "${notes}${PLAN_BNOTE}" ]] || PLAN_HAS_NOTES=true
+                PLAN_SAME+=("${f} ${C_DIM}(homepage moved: ${bhp} and ${php} lead to the same page)${C_RESET}${notes}${PLAN_BNOTE}${snote}")
+                continue
+            fi
+        fi
+        [[ -z "${notes}" ]] || PLAN_HAS_NOTES=true
+        PLAN_DIFFER+=("${f} ${C_DIM}(Homebrew: ${bhp} — MacPorts: ${php})${C_RESET}${notes}${snote}")
+    done
 }
 
 # --migration-report: read-only plan, nothing is changed.
@@ -724,6 +837,9 @@ migration_report() {
         warn "Same name, but maybe a different project (${#PLAN_DIFFER[@]}) — the homepages differ: check with \"port info <port>\" before migrating:"
         for item in "${PLAN_DIFFER[@]}"; do say "    ${C_DIM}-${C_RESET} ${item}"; done
         say "    ${C_DIM}Same software after all: praetorian --migrate <formula>=<port> (naming the port skips this check).${C_RESET}"
+        # Not asked (no terminal, or you said no): how to ask.
+        [[ "${HOMEPAGE_CONSENT}" == yes ]] ||
+            say "    ${C_DIM}A project that moved: praetorian --allow-project-site-requests --migration-report asks the project sites whether one forwards to the other.${C_RESET}"
     fi
     if ((${#PLAN_APPROX[@]} > 0)); then
         say ""
@@ -1035,9 +1151,10 @@ migrate_check_port() {
 }
 
 # 8. Same software? The homepages of the formula and of the main port.
-# Different: blocked when the port was only guessed from the name, a
-# warning when you named it yourself. Unknown on one side, or nothing
-# that tells (homepage_verdict): no verdict.
+# Different: blocked when the port was only guessed from the name, unless
+# one homepage forwards to the other (asked with your consent:
+# homepage_consent); a warning when you named the port yourself. Unknown
+# on one side, or nothing that tells (homepage_verdict): no verdict.
 migrate_check_project() {
     local brew_hp port_hp="" meta verdict
     brew_hp=$(brew_homepages "${f}" | awk -F '\t' 'NR == 1 { print $2 }')
@@ -1052,11 +1169,25 @@ migrate_check_project() {
                 say "    ${C_DIM}Going on: you named the port yourself. The commands are checked after the install.${C_RESET}"
                 return 0
             fi
+            # A project that moved: one address forwards to the other.
+            # Asked only with consent; a dry run says it would offer to.
+            if [[ "${DRY_RUN}" == true && "${ALLOW_PROJECT_SITE_REQUESTS}" != true ]]; then
+                info "${C_DIM}The homepages differ (${brew_hp}, ${port_hp}): a real run would offer to ask both project sites whether one forwards to the other.${C_RESET}"
+            elif homepage_consent "Ask both project sites?" \
+                "? ${f}: Homebrew's homepage (${brew_hp}) isn't MacPorts' (${port_hp})." \
+                "  If the project moved, one address forwards to the other. praetorian can" \
+                "  ask both project sites (2 requests at most, nothing downloaded). If you say" \
+                "  no, the migration is blocked as a possibly different project." &&
+                homepage_moved "${brew_hp}" "${port_hp}"; then
+                ok "Same project: ${f} and ${p}: one homepage forwards to the other (${brew_hp}, ${port_hp})"
+                return 0
+            fi
             block "${p} may not be the same software as ${f}" \
                 "Same name, different homepages: Homebrew ${brew_hp}, MacPorts ${port_hp}. Some names belong to unrelated projects in MacPorts (its \"step\" is a KDE program, not smallstep's)." \
                 "Nothing was done: no MacPorts install, no uninstall." \
                 "Compare: brew info ${f}   and   port info ${p}" \
                 "Same software after all: praetorian --migrate ${f}=${p}   (naming the port turns this block into a warning)" \
+                "A project that moved: praetorian --allow-project-site-requests --migrate ${f}   (asks both project sites whether one forwards to the other)" \
                 "Otherwise find the right port: port search --name --glob '$(port_family "${short%%@*}")*'"
             ;;
     esac
@@ -1153,6 +1284,7 @@ migrate_install() {
         before=${STEP_FAIL}
         run_step "Installing ${q} with MacPorts" \
             "${SUDO_CMD[@]}" "${PORT_BIN}" -N install "${q}"
+        [[ "${DRY_RUN}" == true ]] || port_notes_hint "${STEP_OUT}"
         step_failed_since "${before}" || continue
         save_port_logs "${STEP_OUT}"
         if is_sudo_auth_failure "${STEP_OUT}"; then

@@ -38,6 +38,13 @@ have none.
   upgraded formula's old version: praetorian now runs `brew cleanup
   <formula>` after each upgrade instead of leaving it to the final
   cleanup.
+- When a formula and its port have different homepages, the report and
+  `--migrate` can ask both project sites whether one forwards to the
+  other (a project that moved): on a terminal, they ask you once first
+  (the default is no); `--allow-project-site-requests` answers yes in
+  advance. One HEAD request per site, over https, nothing downloaded. A homepage that
+  forwards to the other is the same project, never taken by
+  `--migrate-all`.
 
 ### Fixed
 
@@ -88,6 +95,10 @@ have none.
   `git-lfs.github.io`: now inconclusive against `git-lfs.com`) and
   `gi.readthedocs.io/en/latest/` (the language and version of a Read the
   Docs path are ignored: now the same as `gi.readthedocs.io`).
+- The notes MacPorts gives after installing or upgrading a port ("Some
+  of the ports you installed have notes") only reached the log. The
+  ports that have some are now named, with the `port notes` command
+  that shows them.
 
 ### Security
 
