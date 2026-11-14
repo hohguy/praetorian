@@ -701,7 +701,7 @@ brew runs in the background (see the next point), and `SIGINT`/`SIGTERM`/`SIGHUP
 
 ### 9. Live log and progress line
 
-Each brew or port command runs in the background and writes to a temp file. Every 2 seconds the new output is appended to the session log, and a single terminal line is redrawn with the elapsed time and the latest action (`==>` for Homebrew, `--->` for MacPorts):
+Each brew or port command runs in the background and writes to a temp file. Every 2 seconds (every 0.5 s during the first second, so a step that ends at once doesn't wait) the new output is appended to the session log, and a single terminal line is redrawn with the elapsed time and the latest action (`==>` for Homebrew, `--->` for MacPorts):
 
 ```
   12:34 Upgrading formula gstreamer — ==> meson compile …

@@ -122,13 +122,16 @@ run_step() {
     [[ -n "${STEP_TMP}" ]] || STEP_TMP=$(mktemp -t praetorian)
     : >"${STEP_TMP}"
     CURRENT_STEP=${label}
-    local rc=0 start offset=0 size elapsed current
+    local rc=0 start offset=0 size elapsed current polls=0
     start=$(date +%s)
     set +e
     "$@" <&3 >"${STEP_TMP}" 2>&1 &
     STEP_PID=$!
     while kill -0 "${STEP_PID}" 2>/dev/null; do
-        sleep 2
+        # Every 0.5 s during the first second, then every 2 s: a step that
+        # ends at once (port select, brew link…) doesn't wait 2 s for it.
+        if ((polls < 2)); then sleep 0.5; else sleep 2; fi
+        polls=$((polls + 1))
         size=$(wc -c <"${STEP_TMP}" | tr -d ' ')
         if ((size > offset)); then
             tail -c +$((offset + 1)) "${STEP_TMP}" | head -c $((size - offset)) >>"${LOG_FILE}"
