@@ -27,9 +27,10 @@
 # Usage   : ./praetorian [--dry-run] [--no-greedy] [--retry-quarantined]
 #                        [--unattended] [--notify | --no-notify]
 #                        [--ac-power-only] [--quiet] [--help]
-#           ./praetorian --migration-report | --status | --doctor | --sbom
+#           ./praetorian [--allow-project-site-requests] --migration-report
+#           ./praetorian --status | --doctor | --sbom
 #           ./praetorian [--dry-run] --prune
-#           ./praetorian [--dry-run] [--allow-build] --migrate <formula>[=<port>[,<port>…]] [--migrate …]
+#           ./praetorian [--dry-run] [--allow-build] [--allow-project-site-requests] --migrate <formula>[=<port>[,<port>…]] [--migrate …]
 #           ./praetorian [--dry-run] [--allow-build] --migrate-all
 #           (--migrate=<spec> works too; -h = --help)
 # Author  : victor-sys-admin
@@ -119,6 +120,9 @@ MIGRATE_SPEC=""             # spec being migrated: "formula" or "formula=port[,p
 declare -a MIGRATE_SPECS=() # every --migrate given, in order
 MIGRATE_ALL=false           # --migrate-all
 ALLOW_BUILD=false           # --allow-build: migrate even without a MacPorts binary
+# --allow-project-site-requests: ask the project sites of differing
+# homepages without a question.
+ALLOW_PROJECT_SITE_REQUESTS=false
 DRY_RUN=false
 GREEDY=true
 QUIET=false
@@ -380,6 +384,12 @@ Homebrew → MacPorts migration:
                 and listed in the summary.
   --allow-build Migrates even when MacPorts has no precompiled binary of
                 the port for this Mac (it would compile from source).
+  --allow-project-site-requests
+                When a formula and its port have different homepages, sends
+                one request to each project's site to see whether one
+                forwards to the other (a project that moved), without asking
+                you first. Without it, the report and --migrate ask you on a
+                terminal, and send nothing otherwise.
 
 Status and cleanup:
   --status      Read-only: what is migrated, what is left in Homebrew and
@@ -440,6 +450,7 @@ parse_args() {
             --prune) set_mode prune "$1" ;;
             --sbom) set_mode sbom "$1" ;;
             --allow-build) ALLOW_BUILD=true ;;
+            --allow-project-site-requests) ALLOW_PROJECT_SITE_REQUESTS=true ;;
             --migrate-all)
                 set_mode migrate "$1"
                 MIGRATE_ALL=true
