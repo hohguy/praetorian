@@ -28,33 +28,27 @@ setup() {
     LOGS="${HOME}/praetorian/logs"
 }
 
+# A running praetorian session, for the lock: a process whose command
+# line names praetorian (a plain "sleep" in the lock is a reused PID, see
+# lock_holder_alive). Sets SESSION_PID; stop it with kill.
+fake_session() {
+    local dir="${BATS_TEST_TMPDIR}/holder"
+    mkdir -p "${dir}"
+    cat >"${dir}/praetorian" <<'HOLDER'
+#!/usr/bin/env bash
+sleep 60 &
+trap 'kill $!; exit 0' TERM
+wait
+HOLDER
+    chmod 755 "${dir}/praetorian"
+    "${dir}/praetorian" &
+    SESSION_PID=$!
+}
+
 # Installs the fake port in the test's MacPorts prefix.
 with_macports() {
     mkdir -p "${PRAETORIAN_PORT_PREFIX}/bin"
     cp "${BATS_TEST_DIRNAME}/stubs/port" "${PRAETORIAN_PORT_PREFIX}/bin/port"
-}
-
-@test "--help prints the usage" {
-    run "${PRAETORIAN}" --help
-    [ "${status}" -eq 0 ]
-    [[ "${output}" == *"Usage: praetorian"* ]] || false
-}
-
-@test "version: --help shows PRAETORIAN_VERSION, a X.Y.Z version" {
-    local version
-    version=$(sed -nE 's/^readonly PRAETORIAN_VERSION="([^"]*)"$/\1/p' "${BATS_TEST_DIRNAME}/../praetorian")
-    [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || false
-    run "${PRAETORIAN}" --help
-    [[ "${output}" == *"praetorian ${version} "* ]] || false
-}
-
-@test "version: README's latest release and CHANGELOG's top entry match PRAETORIAN_VERSION" {
-    local root="${BATS_TEST_DIRNAME}/.." version readme changelog
-    version=$(sed -nE 's/^readonly PRAETORIAN_VERSION="([^"]*)"$/\1/p' "${root}/praetorian")
-    readme=$(sed -n '/^## Latest release/,/^## /p' "${root}/README.md" | sed -nE 's/^### ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)
-    changelog=$(sed -nE 's/^## ([0-9]+\.[0-9]+\.[0-9]+) .*/\1/p' "${root}/CHANGELOG.md" | head -n 1)
-    [ "${readme}" = "${version}" ]
-    [ "${changelog}" = "${version}" ]
 }
 
 @test "unknown option: code 1" {
@@ -118,8 +112,8 @@ with_macports() {
 
 @test "another session running: blocked with an explanation, nothing run" {
     mkdir -p "${HOME}/praetorian/.lock"
-    sleep 60 &
-    local pid=$!
+    fake_session
+    local pid=${SESSION_PID}
     echo "${pid}" >"${HOME}/praetorian/.lock/pid"
     run "${PRAETORIAN}"
     kill "${pid}"
@@ -139,12 +133,150 @@ with_macports() {
     [ ! -e "${HOME}/praetorian/.lock" ]
 }
 
+@test "lock whose PID was reused by another program: taken over" {
+    # A ps that can't show one PID's command (BusyBox): praetorian then
+    # keeps the lock, the safe side.
+    ps -ww -p $$ -o command= >/dev/null 2>&1 || skip "this ps can't show the command of a PID"
+    mkdir -p "${HOME}/praetorian/.lock"
+    sleep 60 &
+    local pid=$!
+    echo "${pid}" >"${HOME}/praetorian/.lock/pid"
+    run "${PRAETORIAN}"
+    kill "${pid}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Lock left by a session that ended abruptly (PID ${pid}, no longer running or reused by another program)"* ]] || false
+    [ ! -e "${HOME}/praetorian/.lock" ]
+}
+
+# --- State directory (PRAETORIAN_HOME) ----------------------------------------
+
+@test "PRAETORIAN_HOME is a file: blocked with an explanation, not an unexpected error" {
+    : >"${BATS_TEST_TMPDIR}/afile"
+    PRAETORIAN_HOME="${BATS_TEST_TMPDIR}/afile" run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"BLOCKED: PRAETORIAN_HOME is not usable"* ]] || false
+    [[ "${output}" == *"${BATS_TEST_TMPDIR}/afile exists but is not a directory."* ]] || false
+    [[ "${output}" != *"unexpected error"* ]] || false
+    [ ! -s "${BREW_CALLS}" ]
+}
+
+@test "PRAETORIAN_HOME can't be created: blocked, nothing created" {
+    mkdir "${BATS_TEST_TMPDIR}/readonly"
+    chmod 555 "${BATS_TEST_TMPDIR}/readonly"
+    PRAETORIAN_HOME="${BATS_TEST_TMPDIR}/readonly/a/state" run "${PRAETORIAN}" --dry-run
+    chmod 755 "${BATS_TEST_TMPDIR}/readonly"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"BLOCKED: PRAETORIAN_HOME is not usable"* ]] || false
+    [[ "${output}" == *"can't be created: ${BATS_TEST_TMPDIR}/readonly is not a directory you can write to."* ]] || false
+    [[ "${output}" != *"unexpected error"* ]] || false
+    [ ! -e "${BATS_TEST_TMPDIR}/readonly/a" ]
+}
+
+@test "PRAETORIAN_HOME writable by everyone: blocked" {
+    mkdir "${BATS_TEST_TMPDIR}/open"
+    chmod 777 "${BATS_TEST_TMPDIR}/open"
+    PRAETORIAN_HOME="${BATS_TEST_TMPDIR}/open" run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${BATS_TEST_TMPDIR}/open is writable by everyone."* ]] || false
+    [ ! -e "${BATS_TEST_TMPDIR}/open/logs" ]
+}
+
+@test "PRAETORIAN_HOME writable by the group only (umask 002): accepted" {
+    mkdir "${BATS_TEST_TMPDIR}/shared"
+    chmod 775 "${BATS_TEST_TMPDIR}/shared"
+    PRAETORIAN_HOME="${BATS_TEST_TMPDIR}/shared" run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 0 ]
+    [ -d "${BATS_TEST_TMPDIR}/shared/logs" ]
+}
+
+@test "HOME not set: one line saying so, not bash's unbound variable" {
+    run env -u HOME "${PRAETORIAN}" --help
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"HOME is not an absolute path (not set)"* ]] || false
+    [[ "${output}" != *"unbound variable"* ]] || false
+}
+
+@test "launchd's stderr file past 1 MB: cut to its last 500 lines; a dry-run leaves it" {
+    local f="${LOGS}/launchd.stderr.log"
+    mkdir -p "${LOGS}"
+    awk 'BEGIN { for (i = 1; i <= 60000; i++) print "stderr line number " i }' >"${f}"
+    run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 0 ]
+    [ "$(wc -l <"${f}" | tr -d ' ')" -eq 60000 ]
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    [ "$(wc -l <"${f}" | tr -d ' ')" -eq 500 ]
+    [ "$(tail -n 1 "${f}")" = "stderr line number 60000" ]
+}
+
 @test "disk almost full: blocked before any command" {
     export PRAETORIAN_MIN_FREE_GB=999999999
     run "${PRAETORIAN}"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"BLOCKED: not enough disk space"* ]] || false
     [ ! -s "${BREW_CALLS}" ]
+}
+
+# with_fake_df <kB> <kB>…: a df in front of the PATH whose free space is
+# each value in turn, one per call (the last one stays). The first call is
+# the check before the session, then one before each formula.
+with_fake_df() {
+    local dir="${BATS_TEST_TMPDIR}/df_bin"
+    export DF_SEQ="${BATS_TEST_TMPDIR}/df_seq"
+    printf '%s\n' "$@" >"${DF_SEQ}"
+    mkdir -p "${dir}"
+    cat >"${dir}/df" <<'EOF'
+#!/usr/bin/env bash
+kb=$(head -n 1 "${DF_SEQ}")
+if [[ "$(wc -l <"${DF_SEQ}" | tr -d ' ')" -gt 1 ]]; then
+    tail -n +2 "${DF_SEQ}" >"${DF_SEQ}.next"
+    mv "${DF_SEQ}.next" "${DF_SEQ}"
+fi
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/disk1s1 999999999 1 ${kb} 1% /"
+EOF
+    chmod 755 "${dir}/df"
+    export PATH="${dir}:${PATH}"
+}
+
+@test "disk runs low between two formulae: loop stopped, the rest listed, casks skipped, cleanup still run" {
+    # 100 GB at the start and before foo, then 1 GB before bar (minimum 5).
+    with_fake_df 104857600 104857600 1048576
+    export BREW_OUTDATED_FORMULA=$'foo\nbar\nbaz' BREW_OUTDATED_CASK=app
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    grep -qx 'upgrade --formula foo' "${BREW_CALLS}"
+    run grep -E '^upgrade --(formula (bar|baz)|cask)' "${BREW_CALLS}"
+    [ "${status}" -eq 1 ]
+    grep -qx 'autoremove' "${BREW_CALLS}"
+    grep -qx 'cleanup --prune=all' "${BREW_CALLS}"
+    run cat "${LOGS}"/praetorian_*.log
+    [[ "${output}" == *"BLOCKED: disk space ran low during the formula upgrades (1 GB free, minimum 5 GB)"* ]] || false
+    [[ "${output}" == *"Not upgraded: bar baz. The casks were skipped too."* ]] || false
+    [[ "${output}" == *"Apps (casks) skipped: not enough disk space"* ]] || false
+}
+
+@test "disk runs low: not on a dry-run, which builds nothing" {
+    with_fake_df 104857600 1048576
+    export BREW_OUTDATED_FORMULA=$'foo\nbar'
+    run "${PRAETORIAN}" --dry-run
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"disk space ran low"* ]] || false
+}
+
+@test "HOMEBREW_NO_INSTALL_CLEANUP: brew cleanup <formula> after each upgrade; without it, left to brew" {
+    export BREW_OUTDATED_FORMULA=$'foo\nbar'
+    # Not inherited: GitHub's macOS runners set it in every job.
+    run env -u HOMEBREW_NO_INSTALL_CLEANUP "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    run grep -E '^cleanup (foo|bar)$' "${BREW_CALLS}"
+    [ "${status}" -eq 1 ]
+    : >"${BREW_CALLS}"
+    rm -f "${BREW_CALLS}.state"*
+    HOMEBREW_NO_INSTALL_CLEANUP=1 run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    run grep -E '^(upgrade --formula|cleanup) (foo|bar)$' "${BREW_CALLS}"
+    [ "${output}" = $'upgrade --formula foo\ncleanup foo\nupgrade --formula bar\ncleanup bar' ]
 }
 
 # --- MacPorts ------------------------------------------------------------------
@@ -600,6 +732,26 @@ in_praetorian() {
     [ "${output}" = $'a\nc' ]
 }
 
+@test "unit: progress_line fits on one screen line" {
+    local action="--->  Attempting to fetch foo-1.2.3_0.darwin_24.x86_64.tbz2 from https://packages.macports.org/foo"
+    # A line that fits is unchanged.
+    run in_praetorian "progress_line 80 125 'Upgrading 1 MacPorts port(s)' '--->  Building foo' | strip_ansi"
+    [ "${output}" = "  02:05 Upgrading 1 MacPorts port(s) — --->  Building foo" ]
+    # A longer one is cut to the width, less one column (79 characters).
+    run in_praetorian "progress_line 80 125 'Upgrading 1 MacPorts port(s)' '${action}' | strip_ansi"
+    [ "${output}" = "  02:05 Upgrading 1 MacPorts port(s) — --->  Attempting to fetch foo-1.2.3_0.da" ]
+    # Past 99 minutes, the longer time is counted.
+    run in_praetorian "progress_line 80 6005 'Upgrading 1 MacPorts port(s)' '${action}' | strip_ansi"
+    [ "${output}" = "  100:05 Upgrading 1 MacPorts port(s) — --->  Attempting to fetch foo-1.2.3_0.d" ]
+    # Too narrow for the label: the label is cut, the action left out.
+    run in_praetorian "progress_line 30 125 'Upgrading 1 MacPorts port(s)' '${action}' | strip_ansi"
+    [ "${output}" = "  02:05 Upgrading 1 MacPorts " ]
+    # Narrower still: no error, the time only.
+    run in_praetorian "progress_line 5 125 'Upgrading' 'x' | strip_ansi"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "  02:05  " ]
+}
+
 # --- Dry-run changes nothing ---------------------------------------------------
 
 @test "dry-run: quarantine.tsv left untouched, even with expired entries" {
@@ -681,6 +833,14 @@ in_praetorian() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"foo is installed despite a brew error"* ]] || false
     [ ! -s "${QUARANTINE}" ]
+}
+
+@test "brew error and brew outdated fails too → still a failure, no \"installed\" warning" {
+    export BREW_OUTDATED_FORMULA=foo BREW_OUTDATED_FORMULA_AFTER="" BREW_OUTDATED_AFTER_RC=1 BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT='Error: Failed to fix install linkage'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" != *"foo is installed despite a brew error"* ]] || false
 }
 
 @test "dependency build failure → the dependency and the formula quarantined" {

@@ -1,0 +1,13 @@
+# Keeps the actions pinned by commit in .github/workflows/ up to date: a
+# pin nobody updates ends up on a version that no longer gets fixes.
+# The container images of ci/check are pinned in that script and updated
+# by hand (see its header): Dependabot doesn't read them.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # A release has to be a week old: time for a bad one to be noticed.
+    cooldown:
+      default-days: 7

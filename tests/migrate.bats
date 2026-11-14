@@ -70,6 +70,9 @@ in_praetorian() {
         "match https://foo.github.io https://github.com/foo/foo"
         "match https://cran.r-project.org/web/packages/foo/index.html https://cran.r-project.org/web/packages/foo/"
         "match https://cli.github.com https://cli.github.com/"
+        "match https://gi.readthedocs.io/en/latest/ https://gi.readthedocs.io"
+        "match https://foo.readthedocs.io/en/v2.1/api https://foo.readthedocs.io/en/latest/api"
+        "match https://foo.github.com https://github.com/foo/foo"
         "mismatch https://smallstep.com https://www.kde.org"
         "mismatch https://www.gnu.org/software/guile/ https://www.gnu.org/software/make/"
         "mismatch https://jpeg.org/jpegxl/index.html https://github.com/libjxl/libjxl"
@@ -84,10 +87,14 @@ in_praetorian() {
         "mismatch https://pypi.org/project/foo https://pypi.org/project/bar"
         "mismatch https://metacpan.org/pod/Foo https://metacpan.org/pod/Bar"
         "mismatch https://cli.github.com https://desktop.github.com"
+        "mismatch https://gist.github.com/alice/1 https://github.com/gist/foo"
+        "mismatch https://docs.github.com/foo https://github.com/docs/bar"
         "mismatch https://alice.github.io https://bob.github.io"
+        "mismatch https://foo.readthedocs.io/en/stable/ https://bar.readthedocs.io"
         "mismatch https://gitlab.gnome.org/GNOME/foo https://gitlab.gnome.org/GNOME/bar"
         "unknown https://github.com/alice/foo https://foo.sourceforge.net"
         "unknown https://github.com/alice/foo https://www.foo.org"
+        "unknown https://git-lfs.com/ https://git-lfs.github.com/"
         "unknown https://sourceforge.net/ https://sourceforge.net/"
         "unknown https://hackage.haskell.org/package/ https://hackage.haskell.org/package"
         "unknown https://www.gnu.org/software/ https://gnu.org/software"
@@ -194,6 +201,26 @@ in_praetorian() {
     [[ "${output}" == *"foo migrated to MacPorts (foo)."* ]] || false
 }
 
+@test "--migrate: obsolete port (replaced_by) → blocked with the replacement, nothing installed" {
+    export BREW_LIST_FILES="/usr/local/Cellar/docbook-xsl/1.79.2/share/docbook-xsl/VERSION"
+    export PORT_AVAILABLE="docbook-xsl docbook-xsl-nons" PORT_REPLACED_BY="docbook-xsl=docbook-xsl-nons"
+    run "${PRAETORIAN}" --migrate docbook-xsl
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: docbook-xsl is obsolete in MacPorts: replaced by docbook-xsl-nons"* ]] || false
+    [[ "${output}" == *"praetorian --migrate docbook-xsl=docbook-xsl-nons"* ]] || false
+    # Stopped before the binary check: no request for the obsolete port.
+    [ ! -s "${CURL_URLS}" ]
+    run grep -qw install "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+
+    # A companion: only that port is swapped in the suggested spec.
+    export BREW_LIST_FILES="/usr/local/Cellar/foo/1.0/bin/foo"
+    export PORT_AVAILABLE="foo foo-old foo-new" PORT_REPLACED_BY="foo-old=foo-new"
+    run "${PRAETORIAN}" --migrate foo=foo,foo-old
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"praetorian --migrate foo=foo,foo-new"* ]] || false
+}
+
 @test "--migrate: same homepage → said so" {
     export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
     export PORT_AVAILABLE="wget" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/wget"
@@ -201,6 +228,90 @@ in_praetorian() {
     run "${PRAETORIAN}" --migrate wget
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Same project: wget and wget have the same homepage"* ]] || false
+}
+
+# --- Settings that name the formula's Homebrew paths ---------------------------
+
+# A Homebrew prefix with gh linked into bin as brew does, and the Git
+# credential helper "gh auth setup-git" writes.
+with_brew_gh() {
+    export BREW_PREFIX="${BATS_TEST_TMPDIR}/brew"
+    mkdir -p "${BREW_PREFIX}/Cellar/gh/2.60/bin" "${BREW_PREFIX}/bin"
+    : >"${BREW_PREFIX}/Cellar/gh/2.60/bin/gh"
+    ln -s ../Cellar/gh/2.60/bin/gh "${BREW_PREFIX}/bin/gh"
+    export BREW_LIST_FILES="${BREW_PREFIX}/Cellar/gh/2.60/bin/gh"
+    printf '[credential "https://github.com"]\n\thelper = !%s/bin/gh auth git-credential\n' "${BREW_PREFIX}" >"${HOME}/.gitconfig"
+}
+
+@test "--migrate: a setting names the formula's command (~/.gitconfig) → warned, not blocked, listed again with the MacPorts path" {
+    with_brew_gh
+    export PORT_AVAILABLE="gh" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/gh"
+    run "${PRAETORIAN}" --migrate gh
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 setting(s) name Homebrew paths of gh"* ]] || false
+    [[ "${output}" == *"- ~/.gitconfig:2: ${BREW_PREFIX}/bin/gh"$'\n'* ]] || false
+    grep -qx 'uninstall --formula gh' "${BREW_CALLS}"
+    [[ "${output}" == *"1 setting(s) still name the Homebrew paths of gh"* ]] || false
+    [[ "${output}" == *"- ~/.gitconfig:2: ${BREW_PREFIX}/bin/gh → ${PRAETORIAN_PORT_PREFIX}/bin/gh"* ]] || false
+}
+
+@test "--migrate: no setting names the formula → said so, nothing to change afterwards" {
+    with_brew_gh
+    rm "${HOME}/.gitconfig"
+    # Another formula's command, a comment and a backup copy don't count.
+    printf 'helper = !%s/bin/wget\n# was: %s/bin/gh\n' "${BREW_PREFIX}" "${BREW_PREFIX}" >"${HOME}/.gitconfig"
+    printf 'x = %s/bin/gh\n' "${BREW_PREFIX}" >"${HOME}/.gitconfig.before-migration"
+    export PORT_AVAILABLE="gh" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/gh"
+    run "${PRAETORIAN}" --migrate gh
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"No other setting found naming the Homebrew paths of gh"* ]] || false
+    [[ "${output}" != *"still name the Homebrew paths"* ]] || false
+}
+
+@test "--migration-report: a setting names a formula's path → noted on its line, still in --migrate-all's list" {
+    with_brew_gh
+    export BREW_LEAVES=gh PORT_AVAILABLE="gh"
+    export BREW_HOMEPAGES="gh=https://cli.github.com/" PORT_INFO="gh=2.60.0_0,https://cli.github.com/,MIT"
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"- gh (settings name it: ~/.gitconfig)"* ]] || false
+    [[ "${output}" == *"migrates the 1 of them"* ]] || false
+    [[ "${output}" == *"\"(settings name it: …)\": files outside your shell startup files"* ]] || false
+    [[ "${output}" != *"The [ ] notes will block"* ]] || false
+}
+
+@test "unit: settings_scan, where it looks and what it skips" {
+    export BREW_PREFIX="${BATS_TEST_TMPDIR}/brew" PRAETORIAN_DOCTOR_ROOT="${BATS_TEST_TMPDIR}/root"
+    local app="${HOME}/Library/Application Support/Editor"
+    mkdir -p "${BREW_PREFIX}/Cellar/gh/2.60/bin" "${BREW_PREFIX}/bin" "${BREW_PREFIX}/opt" \
+        "${app}/Cache" "${app}/extensions/x" "${HOME}/.config/tool" "${PRAETORIAN_DOCTOR_ROOT}/Library/LaunchDaemons"
+    : >"${BREW_PREFIX}/Cellar/gh/2.60/bin/gh"
+    ln -s ../Cellar/gh/2.60/bin/gh "${BREW_PREFIX}/bin/gh"
+    ln -s ../Cellar/gh/2.60 "${BREW_PREFIX}/opt/gh"
+    printf '{"git": "%s/bin/gh", "py": "%s/opt/python@3.12/bin/python3"}\n' "${BREW_PREFIX}" "${BREW_PREFIX}" >"${app}/settings.json"
+    printf '{"git": "%s/bin/gh"}\n' "${BREW_PREFIX}" >"${app}/Cache/state.json"
+    printf '{"git": "%s/bin/gh"}\n' "${BREW_PREFIX}" >"${app}/extensions/x/package.json"
+    printf 'chat about %s/bin/gh\n' "${BREW_PREFIX}" >"${app}/chat.log"
+    printf 'tool = "%s/Cellar/gh/2.60/bin/gh"\n' "${BREW_PREFIX}" >"${HOME}/.config/tool/config.toml"
+    printf '<string>%s/sbin/daemon</string>\n' "${BREW_PREFIX}" >"${PRAETORIAN_DOCTOR_ROOT}/Library/LaunchDaemons/org.example.plist"
+    # In a shell startup file: bin/ paths only (opt/ ones block a migration already).
+    # shellcheck disable=SC2016  # $PATH stays literal: it's the file's content
+    printf 'alias g=%s/bin/gh\nexport PATH=%s/opt/gh/bin:$PATH\n' "${BREW_PREFIX}" "${BREW_PREFIX}" >"${HOME}/.zshrc"
+    # The end of a longer path isn't the prefix.
+    printf 'x = /Volumes/disk%s/bin/gh\n' "${BREW_PREFIX}" >"${HOME}/.otherrc"
+    export CRONTAB_CONTENT="0 4 * * * ${BREW_PREFIX}/bin/gh repo sync"
+    # shellcheck disable=SC2016  # expanded by the inner bash
+    run in_praetorian 'settings_scan "${BREW_PREFIX}"; printf "%s" "${SETTINGS_HITS}" | sed "s#${BREW_PREFIX}#P#g; s#${PRAETORIAN_DOCTOR_ROOT}#R#g" | sort'
+    [ "${status}" -eq 0 ]
+    local expected
+    expected=$(printf '%s\n' \
+        $'?\tR/Library/LaunchDaemons/org.example.plist:1\tP/sbin/daemon' \
+        $'gh\tcrontab:1\tP/bin/gh' \
+        $'gh\t~/.config/tool/config.toml:1\tP/Cellar/gh' \
+        $'gh\t~/.zshrc:1\tP/bin/gh' \
+        $'gh\t~/Library/Application Support/Editor/settings.json:1\tP/bin/gh' \
+        $'python@3.12\t~/Library/Application Support/Editor/settings.json:1\tP/opt/python@3.12' | sort)
+    [ "${output}" = "${expected}" ]
 }
 
 # --- Companion ports, port select, versioned names ----------------------------
@@ -456,6 +567,32 @@ in_praetorian() {
     grep -qx -- '-N install terraform-1.16' "${PORT_CALLS}"
 }
 
+@test "--migrate: a 404 is a 404 whatever curl's exit code (macOS curl 8.7.1 over HTTP/2: 56) → next archive name tried" {
+    export BREW_LIST_FILES="/usr/local/Cellar/automake/1.19/bin/automake"
+    export PORT_AVAILABLE="automake" PORT_FILES="automake=bin/automake"
+    export CURL_404_RC=56 CURL_PACKAGES="automake-1.0_0.any_any.noarch.tbz2"
+    run "${PRAETORIAN}" --dry-run --migrate automake
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Precompiled binary of automake available for this Mac"* ]] || false
+    [[ "${output}" != *"didn't answer"* ]] || false
+    [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 4 ]
+    grep -qx 'https://packages.macports.org/automake/automake-1.0_0.any_any.noarch.tbz2' "${CURL_URLS}"
+}
+
+@test "--migrate: packages.macports.org answering 503 or 403 → no verdict, not blocking" {
+    export BREW_LIST_FILES="/usr/local/Cellar/wget/1.25/bin/wget"
+    export PORT_AVAILABLE="wget" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/wget"
+    for code in 503 403; do
+        : >"${CURL_URLS}"
+        export CURL_HTTP_ERROR=${code}
+        run "${PRAETORIAN}" --dry-run --migrate wget
+        [ "${status}" -eq 0 ]
+        [[ "${output}" == *"binary not checked (packages.macports.org didn't answer)"* ]] || false
+        [[ "${output}" != *"BLOCKED"* ]] || false
+        [ "$(wc -l <"${CURL_URLS}" | tr -d ' ')" -eq 1 ]
+    done
+}
+
 # --- Dry-run and programs outside Homebrew ------------------------------------------
 
 @test "--migrate --dry-run: plan per port, nothing installed, no sudo" {
@@ -691,8 +828,130 @@ in_praetorian() {
     [[ "${output}" == *"foo (Homebrew: https://foo.dev — MacPorts: https://www.kde.org)"* ]] || false
     [[ "${output}" == *"step → step-cli,step-ca (praetorian --migrate step=step-cli,step-ca)"* ]] || false
     [[ "${output}" == *"4 port(s) checked, 1 without one."* ]] || false
-    [[ "${output}" == *"[MacPorts publishes no binary: …] → no archive for any version or Mac"* ]] || false
+    # Legend: only the notes shown above (no service, no shell file here).
+    [[ "${output}" == *"[no binary for this Mac: …]       → praetorian installs binaries only"* ]] || false
+    [[ "${output}" != *"[brew service running]"* ]] || false
+    [[ "${output}" != *"[referenced in ~/.zshrc…]"* ]] || false
     run grep -wE 'install|uninstall|selfupdate|select|setrequested' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
+# Homepages that differ, the sites asked with consent. foo's homepage
+# forwards to its port's; bar's two homepages both lead to a parked page.
+homepages_moved_setup() {
+    export BREW_LEAVES=$'foo\nbar'
+    export PORT_AVAILABLE="foo bar"
+    export BREW_HOMEPAGES="foo=https://foo.example.com/ bar=https://bar.dev"
+    export PORT_INFO="foo=1.0_0,https://foo.dev/,MIT bar=1.0_0,https://www.kde.org,MIT"
+    export CURL_REDIRECTS="https://foo.example.com/=https://foo.dev/ https://bar.dev=https://parked.example/ https://www.kde.org=https://parked.example/"
+    export CURL_HOMEPAGE_URLS="${BATS_TEST_TMPDIR}/homepage_urls"
+    : >"${CURL_HOMEPAGE_URLS}"
+}
+
+# report_answering <answer>: the report as from a terminal, the answer
+# read on fd 3 (as prune_confirm does).
+report_answering() {
+    printf '%s\n' "$1" >"${BATS_TEST_TMPDIR}/answers"
+    bash -c "source '${PRAETORIAN}'; check_prerequisites; UNATTENDED=false; exec 3<'${BATS_TEST_TMPDIR}/answers'; migration_report"
+}
+
+@test "--migration-report --allow-project-site-requests: a homepage that forwards to the other → same name, noted, not for --migrate-all; two that lead to a third page → still different" {
+    homepages_moved_setup
+    run "${PRAETORIAN}" --allow-project-site-requests --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"[y/N]"* ]] || false
+    [[ "${output}" == *"Same name in MacPorts (1)"* ]] || false
+    [[ "${output}" == *"- foo (homepage moved: https://foo.example.com/ and https://foo.dev/ lead to the same page)"* ]] || false
+    [[ "${output}" != *"migrates the 1 of them"* ]] || false
+    [[ "${output}" == *"Same name, but maybe a different project (1)"* ]] || false
+    [[ "${output}" == *"bar (Homebrew: https://bar.dev — MacPorts: https://www.kde.org)"* ]] || false
+    [[ "${output}" != *"praetorian --allow-project-site-requests --migration-report asks"* ]] || false
+    grep -qx 'https://foo.example.com/' "${CURL_HOMEPAGE_URLS}"
+}
+
+@test "--migration-report without a terminal nor --allow-project-site-requests → no question, no request, the option suggested" {
+    homepages_moved_setup
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"[y/N]"* ]] || false
+    [[ "${output}" == *"Same name, but maybe a different project (2)"* ]] || false
+    [[ "${output}" == *"praetorian --allow-project-site-requests --migration-report asks the project sites"* ]] || false
+    [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+}
+
+@test "--migration-report on a terminal: asked once; \"y\" → the sites asked, \"n\" or nothing → none" {
+    homepages_moved_setup
+    run report_answering y
+    [[ "${output}" == *"2 formula(e) have a MacPorts port with the same name but another homepage:"* ]] || false
+    [[ "${output}" == *"only those sites are contacted"* ]] || false
+    [ "$(grep -c '\[y/N\]' <<<"${output}")" -eq 1 ]
+    [[ "${output}" == *"- foo (homepage moved: "* ]] || false
+    [ -s "${CURL_HOMEPAGE_URLS}" ]
+    local answer
+    for answer in n ""; do
+        : >"${CURL_HOMEPAGE_URLS}"
+        run report_answering "${answer}"
+        [[ "${output}" == *"[y/N]"* ]] || false
+        [[ "${output}" == *"Same name, but maybe a different project (2)"* ]] || false
+        [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+    done
+}
+
+@test "--migrate: a homepage that forwards to the other → not blocked with --allow-project-site-requests; blocked without, the option suggested; a dry run asks nothing" {
+    export BREW_LIST_FILES="/usr/local/Cellar/foo/1.0/bin/foo"
+    export PORT_AVAILABLE="foo" PORT_CONTENTS="${PRAETORIAN_PORT_PREFIX}/bin/foo" PORT_FILES="foo=bin/foo"
+    export BREW_HOMEPAGES="foo=https://foo.example.com/" PORT_INFO="foo=1.0_0,https://foo.dev/,MIT"
+    export CURL_REDIRECTS="https://foo.example.com/=https://foo.dev/"
+    export CURL_HOMEPAGE_URLS="${BATS_TEST_TMPDIR}/homepage_urls"
+    : >"${CURL_HOMEPAGE_URLS}"
+    run "${PRAETORIAN}" --migrate foo
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: foo may not be the same software as foo"* ]] || false
+    [[ "${output}" == *"praetorian --allow-project-site-requests --migrate foo"* ]] || false
+    [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+
+    run "${PRAETORIAN}" --dry-run --migrate foo
+    [[ "${output}" == *"a real run would offer to ask both project sites whether one forwards to the other"* ]] || false
+    [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+
+    run "${PRAETORIAN}" --allow-project-site-requests --migrate foo
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Same project: foo and foo: one homepage forwards to the other (https://foo.example.com/, https://foo.dev/)"* ]] || false
+    [[ "${output}" == *"foo migrated to MacPorts (foo)."* ]] || false
+    grep -qx 'https://foo.example.com/' "${CURL_HOMEPAGE_URLS}"
+}
+
+@test "--migrate-all --allow-project-site-requests: a homepage that only forwards to the other → not taken, no request" {
+    export BREW_LEAVES=$'wget\nfoo'
+    export BREW_LIST_FILES=$'/usr/local/Cellar/wget/1.25/bin/wget\n/usr/local/Cellar/foo/1.0/bin/foo'
+    export PORT_AVAILABLE="wget foo" PORT_FILES="wget=bin/wget foo=bin/foo"
+    export BREW_HOMEPAGES="wget=https://www.gnu.org/software/wget/ foo=https://foo.example.com/"
+    export PORT_INFO="wget=1.0_0,https://www.gnu.org/software/wget/,GPL foo=1.0_0,https://foo.dev/,MIT"
+    export CURL_REDIRECTS="https://foo.example.com/=https://foo.dev/"
+    export CURL_HOMEPAGE_URLS="${BATS_TEST_TMPDIR}/homepage_urls"
+    : >"${CURL_HOMEPAGE_URLS}"
+    run "${PRAETORIAN}" --allow-project-site-requests --migrate-all
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"nothing blocking: wget"* ]] || false
+    [[ "${output}" != *"foo: migrated"* ]] || false
+    [ ! -s "${CURL_HOMEPAGE_URLS}" ]
+}
+
+@test "--migration-report: obsolete same-name port → its replacement, not counted for --migrate-all" {
+    export BREW_LEAVES=$'docbook-xsl\nwget'
+    export PORT_AVAILABLE="docbook-xsl docbook-xsl-nons wget" PORT_REPLACED_BY="docbook-xsl=docbook-xsl-nons"
+    export BREW_HOMEPAGES="docbook-xsl=https://docbook.org/ wget=https://www.gnu.org/software/wget/"
+    export PORT_INFO="docbook-xsl=1.79.2_4,http://docbook.org/,MIT wget=1.0_0,https://www.gnu.org/software/wget/,GPL"
+    export CURL_PACKAGES="docbook-xsl-nons-1.0_0.darwin_24.x86_64.tbz2 wget-1.0_0.darwin_24.x86_64.tbz2"
+    run "${PRAETORIAN}" --migration-report
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Same name in MacPorts (1)"* ]] || false
+    [[ "${output}" == *"docbook-xsl → docbook-xsl-nons (docbook-xsl is obsolete in MacPorts: praetorian --migrate docbook-xsl=docbook-xsl-nons)"* ]] || false
+    [[ "${output}" == *"migrates the 1 of them"* ]] || false
+    # The replacement's archive is the one checked, not the obsolete port's.
+    [[ "${output}" != *"[no binary for this Mac"* ]] || false
+    grep -q docbook-xsl-nons "${CURL_URLS}"
+    run grep -q "/docbook-xsl/" "${CURL_URLS}"
     [ "${status}" -eq 1 ]
 }
 
@@ -717,6 +976,9 @@ in_praetorian() {
     [[ "${output}" == *"- wget [MacPorts publishes no binary: wget]"* ]] || false
     [[ "${output}" != *"[no binary for this Mac: wget]"* ]] || false
     [[ "${output}" == *"2 port(s) checked, 1 without one."* ]] || false
+    # Legend: this note's line, not the one for "no binary for this Mac".
+    [[ "${output}" == *"[MacPorts publishes no binary: …] → no archive for any version or Mac"* ]] || false
+    [[ "${output}" != *"[no binary for this Mac: …]"* ]] || false
 }
 
 @test "--migration-report: a port MacPorts may not distribute (license) is noted, not ready" {

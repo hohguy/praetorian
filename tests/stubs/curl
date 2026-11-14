@@ -13,10 +13,14 @@
 # 000). The URLs asked for go to $CURL_URLS, when set.
 # Like the real curl: -w '%{http_code}' prints the HTTP code (200, 404,
 # 000); a 404 exits 0 without -f, and with -f exits $CURL_404_RC
-# (default 22; macOS's curl 8.7 over HTTP/2 exits 56 instead).
+# (default 22; macOS's own curl 8.7.1 over HTTP/2 exits 56 instead).
 # $CURL_HTTP_ERROR (e.g. 503): every archive answers that code instead.
 # A port's directory (…/<port>/) exists, unless the port is listed in
 # $CURL_NO_DIR (space-separated): then a 404.
+#
+# Homepages (-w '%{http_code} %{url_effective}', any other URL): 200 at
+# the URL itself, or where $CURL_REDIRECTS ("from=to …") sends it. The
+# URLs asked for go to $CURL_HOMEPAGE_URLS, when set.
 #
 set -u
 url=${!#}
@@ -48,6 +52,13 @@ if [[ "${url}" == https://packages.macports.org/* ]]; then
     fi
     [[ " ${CURL_PACKAGES} " != *" ${url##*/} "* ]] || answer 200 0
     answer 404 "${CURL_404_RC:-22}"
+fi
+if [[ " $* " == *" %{http_code} %{url_effective} "* ]]; then
+    [[ -z "${CURL_HOMEPAGE_URLS:-}" ]] || printf '%s\n' "${url}" >>"${CURL_HOMEPAGE_URLS}"
+    final=${url}
+    for entry in ${CURL_REDIRECTS:-}; do [[ "${entry%%=*}" != "${url}" ]] || final=${entry#*=}; done
+    printf '200 %s' "${final}"
+    exit 0
 fi
 if [[ -n "${CURL_DOWN_FOR:-}" ]]; then
     echo x >>"${CURL_CALLS}"

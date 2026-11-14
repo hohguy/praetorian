@@ -28,15 +28,21 @@ ships, and nothing to install. Please keep it that way.
    ci/macos-tests
    ```
 
+   With GNU parallel installed, `ci/macos-tests --jobs 6` runs the
+   tests in parallel.
+
 3. Add or update tests in `tests/*.bats` for any behavior change. The
    fakes in `tests/stubs/` replace `brew`, `port`, `sudo` and friends:
    the tests never run the real ones. A new `.bats` file is picked up by
    both runners automatically.
 
-4. Add a line to the top entry of [CHANGELOG.md](CHANGELOG.md) (the version being prepared, which `PRAETORIAN_VERSION` and the README's "Latest release" must match: a test checks all three).
-   When releasing, bump `PRAETORIAN_VERSION` in `praetorian`, the
-   "Latest release" heading of the README and the CHANGELOG's top entry
-   together.
+4. Add a line to the "Unreleased" section at the top of
+   [CHANGELOG.md](CHANGELOG.md) (create it above the latest version when
+   it isn't there). When releasing, rename "Unreleased" to the new
+   version and its date, and bump `PRAETORIAN_VERSION` in `praetorian`
+   and the "Latest release" heading of the README together: the first
+   numbered entry of the CHANGELOG, `PRAETORIAN_VERSION` and the README
+   must match (a test checks all three).
 
 GitHub Actions runs `ci/check` and `ci/macos-tests` on every pull request
 (each push to its branch) and on `main` once merged. A branch without a

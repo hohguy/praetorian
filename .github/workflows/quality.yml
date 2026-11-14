@@ -1,9 +1,11 @@
 name: quality
 
-# Same checks as locally: everything goes through ci/check (pinned containers).
-# Runs on pull requests (every push to a PR branch, through the PR) and on
-# main once merged. A push to a branch without a PR runs nothing: run
-# ci/check and ci/macos-tests locally there.
+# Quality and security checks for praetorian.
+# Jobs run in parallel and are conditioned on modified files:
+#   - docs & secrets always run (fast checks, documentation consistency and secrets);
+#   - code linting, Linux Bats tests, and macOS tests run only when code has changed;
+#   - workflow validation runs when .github/workflows files change;
+#   - quality-gate aggregates results for branch protection rules.
 on:
   push:
     branches: [main]
@@ -18,23 +20,131 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
-    name: ci/check
-    runs-on: ubuntu-latest
+  changes:
+    name: detect-changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: filter
+        name: Check modified files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$BASE_REF" ]; then
+            changed=$(git diff --name-only "origin/$BASE_REF"...HEAD 2>/dev/null || git diff --name-only HEAD^1 HEAD 2>/dev/null || true)
+          else
+            changed=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+          fi
+
+          echo "Changed files:"
+          echo "${changed:-<none or initial commit>}"
+
+          code=false
+          workflows=false
+
+          if [ -z "$changed" ]; then
+            code=true
+            workflows=true
+          else
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              case "$f" in
+                praetorian*|lib/*|ci/*|tests/*) code=true ;;
+                .github/workflows/*) workflows=true ;;
+              esac
+            done <<< "$changed"
+          fi
+
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "workflows=$workflows" >> "$GITHUB_OUTPUT"
+
+  # Always runs: secrets scan (gitleaks) across all files and doc tests.
+  docs:
+    name: docs & secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: ./ci/check
+      - name: Secrets check (gitleaks)
+        run: ./ci/check secrets
+      - name: Documentation and version tests (tests/doc.bats)
+        run: |
+          if command -v bats >/dev/null 2>&1; then
+            bats --print-output-on-failure tests/doc.bats
+          else
+            # Fallback when bats is not pre-installed
+            version=$(sed -nE 's/^readonly PRAETORIAN_VERSION="([^"]*)"$/\1/p' praetorian)
+            readme=$(sed -n '/^## Latest release/,/^## /p' README.md | sed -nE 's/^### ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)
+            changelog=$(sed -nE 's/^## ([0-9]+\.[0-9]+\.[0-9]+) .*/\1/p' CHANGELOG.md | head -n 1)
+            [ -n "${version}" ] && [ "${readme}" = "${version}" ] && [ "${changelog}" = "${version}" ]
+          fi
 
-  # The target platform: macOS tools (BSD sed/find/date, mdls, caffeinate,
-  # xcodebuild) and macOS's own /bin/bash 3.2, which the Linux container
-  # can't cover.
+  # Code linting & formatting: ShellCheck and shfmt.
+  lint:
+    name: lint & format
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: ./ci/check lint format
+
+  # Security and syntax validation for GitHub Actions workflows.
+  workflows:
+    name: workflows
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: ./ci/check workflows
+
+  # Bats test suite on Linux (containerized).
+  tests-linux:
+    name: tests on Linux (bats)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: ./ci/check tests
+
+  # Target platform: macOS tools and macOS's own /bin/bash 3.2.
   macos-bash32:
     name: tests on macOS, /bin/bash 3.2
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -42,3 +152,30 @@ jobs:
         with:
           persist-credentials: false
       - run: ci/macos-tests
+
+  # Aggregator job for branch protection rules.
+  # Passes if all required jobs succeed or are legitimately skipped.
+  quality-gate:
+    name: quality-gate
+    needs: [changes, docs, lint, workflows, tests-linux, macos-bash32]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Evaluate check results
+        env:
+          CHANGES_RES: ${{ needs.changes.result }}
+          DOCS_RES: ${{ needs.docs.result }}
+          LINT_RES: ${{ needs.lint.result }}
+          WORKFLOWS_RES: ${{ needs.workflows.result }}
+          TESTS_LINUX_RES: ${{ needs.tests-linux.result }}
+          TESTS_MACOS_RES: ${{ needs.macos-bash32.result }}
+        run: |
+          for res in "$CHANGES_RES" "$DOCS_RES" "$LINT_RES" "$WORKFLOWS_RES" "$TESTS_LINUX_RES" "$TESTS_MACOS_RES"; do
+            if [[ "$res" == "failure" || "$res" == "cancelled" ]]; then
+              echo "Error: at least one required check failed or was cancelled." >&2
+              exit 1
+            fi
+          done
+          echo "All checks passed or were skipped legitimately."

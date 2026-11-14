@@ -10,6 +10,10 @@
 # shellcheck disable=SC2030,SC2031
 
 setup() {
+    # praetorian-schedule refuses directories writable by group or others:
+    # with a umask of 002 (the default of many Linux accounts), the ones
+    # the tests create would be refused.
+    umask 022
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
     export PATH="${BATS_TEST_DIRNAME}/stubs:${PATH}"
@@ -411,6 +415,17 @@ no_leftovers() {
     run "${SCHEDULE}" status
     [[ "${output}" == *"stderr log  : ${HOME}/praetorian/logs/launchd.stderr.log"* ]] || false
     [[ "${output}" == *"    early failure"* ]] || false
+}
+
+@test "schedule: status reads a PRAETORIAN_HOME with & back from the plist (XML decoded)" {
+    export PRAETORIAN_HOME="${BATS_TEST_TMPDIR}/R&D/state"
+    "${SCHEDULE}" install
+    grep -q 'R&amp;D/state' "${PLIST}"
+    echo "early failure" >"${PRAETORIAN_HOME}/logs/launchd.stderr.log"
+    unset PRAETORIAN_HOME
+    run "${SCHEDULE}" status
+    [[ "${output}" == *"stderr log  : ${BATS_TEST_TMPDIR}/R&D/state/logs/launchd.stderr.log"* ]] || false
+    [[ "${output}" != *"&amp;"* ]] || false
 }
 
 @test "schedule: status, not loaded or praetorian moved → code 1 with what to do" {

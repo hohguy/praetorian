@@ -31,6 +31,17 @@
 #
 set -euo pipefail
 
+# Really root: only macOS's own tools from here on. sudo keeps the
+# caller's PATH on macOS (no secure_path by default), so grep, sed, mv or
+# chown would otherwise be the first one found there, possibly in a
+# directory the caller can write to (Homebrew's bin), and run as root.
+# EUID, not "id -u": the tests replace id and never run as root, so they
+# keep their fakes.
+if [[ "${EUID}" -eq 0 ]]; then
+    PATH=/usr/bin:/bin:/usr/sbin:/sbin
+    export PATH
+fi
+
 readonly DEFAULT_TARGET=/etc/pam.d/sudo_local
 readonly LINE='auth       sufficient     pam_tid.so'
 readonly ACTIVE_RE='^[[:space:]]*auth[[:space:]].*pam_tid\.so'
@@ -137,7 +148,11 @@ fingerprints() {
         bioutil -c
     fi
 }
-if ! fingerprints 2>/dev/null | grep -qE '[1-9][0-9]* biometric template'; then
+# Read in full before the search: with "fingerprints | grep -q" under
+# pipefail, grep leaves at the first match, bioutil can die of SIGPIPE on
+# its next line, and the pipeline then fails with a fingerprint enrolled.
+enrolled=$(fingerprints 2>/dev/null || true)
+if ! grep -qE '[1-9][0-9]* biometric template' <<<"${enrolled}"; then
     echo "No fingerprint enrolled for ${SUDO_USER:-this user} (System Settings > Touch ID)." >&2
     exit 1
 fi

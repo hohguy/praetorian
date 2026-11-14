@@ -94,6 +94,7 @@ fake_pkgutil() {
     [[ "${output}" == *"No problem found."* ]] || false
     [[ "${output}" == *"pipx: no environment"* ]] || false
     [[ "${output}" == *"PATH: every entry exists."* ]] || false
+    [[ "${output}" == *"Settings: none found naming a Homebrew path that is gone"* ]] || false
     [[ "${output}" == *"MacPorts not found: MacPorts checks skipped."* ]] || false
     run grep -vE '^(--prefix|--caskroom)' "${BREW_CALLS}"
     [ "${status}" -eq 1 ]
@@ -240,6 +241,28 @@ fake_pkgutil() {
     [[ "${output}" == *"problems=3"* ]] # Cellar, opt, bin/wget
 }
 
+@test "doctor ownership: a link you can't read (brew cleanup stops on it) → sudo chmod -h, whatever its target" {
+    fake_exe "${PRAETORIAN_DOCTOR_ROOT}/Applications/Tool.app/Contents/MacOS/tool"
+    ln -s "${PRAETORIAN_DOCTOR_ROOT}/Applications/Tool.app/Contents/MacOS/tool" "${BREW_PREFIX}/bin/tool"
+    fake_exe "${BREW_PREFIX}/bin/firebase"
+    # A root-only link (mode 0700): readlink is refused. Faked, so the
+    # test runs anywhere and without root.
+    local bin="${BATS_TEST_TMPDIR}/fakebin" real
+    real=$(command -v readlink)
+    mkdir -p "${bin}"
+    # shellcheck disable=SC2016  # $1 and $@ belong to the fake readlink
+    printf '#!/bin/sh\n[ "$1" = "%s" ] && { echo "readlink: Permission denied" >&2; exit 1; }\nexec %s "$@"\n' \
+        "${BREW_PREFIX}/bin/tool" "${real}" >"${bin}/readlink"
+    chmod +x "${bin}/readlink"
+    TEST_PATH="${bin}:${TEST_PATH}"
+    # shellcheck disable=SC2016  # expanded by the bash of in_praetorian
+    run in_praetorian 'export FAKE_UID=4242; doctor_brew_ownership "${BREW_PREFIX}"'
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"sudo chmod -h 755 ${BREW_PREFIX}/bin/tool"* ]] || false
+    [[ "${output}" != *"ls -la ${BREW_PREFIX}/bin/tool "* ]] || false
+    [[ "${output}" != *"firebase"* ]] || false
+}
+
 @test "doctor ownership: everything yours → nothing reported" {
     fake_exe "${BREW_PREFIX}/Cellar/wget/1.25/bin/wget"
     mkdir -p "${BREW_PREFIX}/lib/python3.13/site-packages/foo/__pycache__"
@@ -329,6 +352,25 @@ fake_pkgutil() {
     [[ "${output}" == *"libxml++ was migrated to MacPorts (libxmlxx2)"* ]] || false
     [[ "${output}" == *"python@3.12 was migrated to MacPorts (python312)"* ]] || false
     [[ "${output}" != *"(wrong)"* ]] || false
+}
+
+@test "doctor PATH: installed formula whose opt link is missing → brew link, not \"isn't installed\"" {
+    mkdir -p "${BREW_PREFIX}/Cellar/python@3.14/3.14.7/libexec/bin"
+    echo "export PATH=\"${BREW_PREFIX}/opt/python@3.14/libexec/bin:\$PATH\"" >"${HOME}/.zprofile"
+    run_doctor "${TEST_PATH}:${BREW_PREFIX}/opt/python@3.14/libexec/bin"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"the formula python@3.14 is installed, but its link ${BREW_PREFIX}/opt/python@3.14 is missing."* ]] || false
+    [[ "${output}" == *"brew link python@3.14"* ]] || false
+    [[ "${output}" != *"isn't installed"* ]] || false
+    [[ "${output}" != *"Remove it from"* ]] || false
+}
+
+@test "doctor PATH: opt link missing, formula already linked → brew unlink then brew link" {
+    mkdir -p "${BREW_PREFIX}/Cellar/python@3.14/3.14.7/libexec/bin" "${BREW_PREFIX}/var/homebrew/linked"
+    ln -s ../../../Cellar/python@3.14/3.14.7 "${BREW_PREFIX}/var/homebrew/linked/python@3.14"
+    run_doctor "${TEST_PATH}:${BREW_PREFIX}/opt/python@3.14/libexec/bin"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"brew unlink python@3.14 && brew link python@3.14"* ]] || false
 }
 
 @test "doctor PATH: an installed formula's opt directory is fine" {
@@ -556,4 +598,72 @@ fake_pkgutil() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Homebrew not found: Homebrew checks skipped."* ]] || false
     [ ! -s "${BREW_CALLS}" ]
+}
+
+# --- Settings that name a Homebrew path that is gone ----------------------------
+
+@test "doctor: settings naming a Homebrew path that is gone → reported with the MacPorts path; a working one is left alone" {
+    local app="${HOME}/Library/Application Support/TeXEditor"
+    mkdir -p "${app}" "${BREW_PREFIX}/Cellar/git/2.50/bin" "${PRAETORIAN_PORT_PREFIX}/bin"
+    : >"${BREW_PREFIX}/Cellar/git/2.50/bin/git"
+    ln -s ../Cellar/git/2.50/bin/git "${BREW_PREFIX}/bin/git"
+    : >"${PRAETORIAN_PORT_PREFIX}/bin/gh"
+    : >"${PRAETORIAN_PORT_PREFIX}/bin/gs"
+    printf '[credential]\n\thelper = !%s/bin/gh auth git-credential\n' "${BREW_PREFIX}" >"${HOME}/.gitconfig"
+    printf '{"gs": "%s/bin/gs", "python": "%s/opt/python@3.12/bin/python3", "git": "%s/bin/git"}\n' \
+        "${BREW_PREFIX}" "${BREW_PREFIX}" "${BREW_PREFIX}" >"${app}/settings.json"
+    run_doctor
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"3 setting(s) name a Homebrew path that no longer exists"* ]] || false
+    [[ "${output}" == *"~/.gitconfig:2: ${BREW_PREFIX}/bin/gh   → ${PRAETORIAN_PORT_PREFIX}/bin/gh"* ]] || false
+    [[ "${output}" == *"TeXEditor/settings.json:1: ${BREW_PREFIX}/bin/gs   → ${PRAETORIAN_PORT_PREFIX}/bin/gs"* ]] || false
+    [[ "${output}" == *"TeXEditor/settings.json:1: ${BREW_PREFIX}/opt/python@3.12"$'\n'* ]] || false
+    [[ "${output}" != *"${BREW_PREFIX}/bin/git"* ]] || false
+    # Read-only: the files are untouched.
+    grep -q "${BREW_PREFIX}/bin/gh" "${HOME}/.gitconfig"
+}
+
+@test "doctor: a missing command in <prefix>/bin MacPorts doesn't have → not counted (maybe not Homebrew's), logged" {
+    printf 'tool = %s/bin/vendor-tool\n' "${BREW_PREFIX}" >"${HOME}/.toolrc"
+    run_doctor
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Settings: none found naming a Homebrew path that is gone"* ]] || false
+    [[ "${output}" == *"1 more setting(s) name a path in ${BREW_PREFIX}/bin that doesn't exist, maybe not Homebrew's"* ]] || false
+    grep -q "not known to be Homebrew's): ~/.toolrc:1: ${BREW_PREFIX}/bin/vendor-tool" "${HOME}"/praetorian/logs/praetorian_*.log
+}
+
+@test "doctor: the crontab and a binary plist are read too" {
+    mkdir -p "${HOME}/Library/Preferences" "${PRAETORIAN_PORT_PREFIX}/bin"
+    : >"${PRAETORIAN_PORT_PREFIX}/bin/ps2pdf"
+    : >"${PRAETORIAN_PORT_PREFIX}/bin/gh"
+    printf 'bplist00\321\001\002TpathO\020%s/bin/ps2pdf\000\010\013' "${BREW_PREFIX}" >"${HOME}/Library/Preferences/TeXShop.plist"
+    export CRONTAB_CONTENT="0 4 * * * ${BREW_PREFIX}/bin/gh repo sync"
+    run_doctor
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"2 setting(s) name a Homebrew path that no longer exists"* ]] || false
+    [[ "${output}" == *"crontab:1: ${BREW_PREFIX}/bin/gh   → ${PRAETORIAN_PORT_PREFIX}/bin/gh"* ]] || false
+    [[ "${output}" == *"~/Library/Preferences/TeXShop.plist: ${BREW_PREFIX}/bin/ps2pdf   → ${PRAETORIAN_PORT_PREFIX}/bin/ps2pdf"* ]] || false
+}
+
+@test "doctor: a binary plist written by plutil → a path followed by another string read whole" {
+    local plist="${HOME}/Library/Preferences/TeXShop.plist"
+    mkdir -p "${HOME}/Library/Preferences" "${PRAETORIAN_PORT_PREFIX}/bin"
+    : >"${PRAETORIAN_PORT_PREFIX}/bin/dvipdf"
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n<key>a</key><string>%s/bin/dvipdf</string>\n<key>b</key><string>default</string>\n</dict>\n</plist>\n' \
+        "${BREW_PREFIX}" >"${plist}"
+    # A real binary plist needs the real plutil (macOS): the stub of the
+    # Linux container only lints. Cut at its non-printable bytes, this one
+    # reads ".../bin/dvipdfWdefault" ("W": the marker of a 7-byte string).
+    plutil -convert binary1 "${plist}" 2>/dev/null || skip "no plutil to write a binary plist"
+    run_doctor
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"~/Library/Preferences/TeXShop.plist: ${BREW_PREFIX}/bin/dvipdf   → ${PRAETORIAN_PORT_PREFIX}/bin/dvipdf"* ]] || false
+}
+
+@test "doctor: the MacPorts installer's backup copy of a shell file (.macports-saved_…) → not read" {
+    printf 'export PATH="%s/opt/python@3.12/bin:/usr/bin"\n' "${BREW_PREFIX}" \
+        >"${HOME}/.zprofile.macports-saved_2026-11-03_at_08:28:33"
+    run_doctor
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Settings: none found naming a Homebrew path that is gone"* ]] || false
 }

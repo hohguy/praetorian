@@ -6,6 +6,8 @@
 #   BREW_OUTDATED_FORMULA / BREW_OUTDATED_CASK   packages "to upgrade"
 #   BREW_OUTDATED_FORMULA_AFTER   outdated formulae once an upgrade was
 #                         attempted (default: BREW_OUTDATED_FORMULA)
+#   BREW_OUTDATED_AFTER_RC        exit code of brew outdated --formula
+#                         once an upgrade was attempted (default 0)
 #   BREW_UPGRADE_OUTPUT   / BREW_UPGRADE_RC      brew upgrade --formula
 #   BREW_UPGRADE_OUTPUT2  / BREW_UPGRADE_RC2     2nd brew upgrade --formula
 #                         (retry after an auto-fix; default: same as 1st)
@@ -59,6 +61,7 @@ case "$1 ${2:-}" in
     "outdated --formula")
         if [[ -e "${state}.upgraded" ]]; then
             say "${BREW_OUTDATED_FORMULA_AFTER-${BREW_OUTDATED_FORMULA:-}}"
+            exit "${BREW_OUTDATED_AFTER_RC:-0}"
         else
             say "${BREW_OUTDATED_FORMULA:-}"
         fi

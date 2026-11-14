@@ -120,6 +120,12 @@ xml_escape() {
     sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' <<<"$1"
 }
 
+# The reverse, for the values read back from the plist ("&amp;" last: it
+# may be what "&amp;lt;" started with).
+xml_unescape() {
+    sed -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&amp;/\&/g'
+}
+
 # --- Arguments --------------------------------------------------------------
 COMMAND=""
 AT=${DEFAULT_AT}
@@ -434,9 +440,9 @@ uninstall_job() {
 }
 
 # plist_value <plist> <key>: the integer or string right after <key>, in
-# the format praetorian-schedule writes.
+# the format praetorian-schedule writes, XML entities decoded.
 plist_value() {
-    sed -nE "/<key>$2<\\/key>/{n;s/.*<(integer|string)>([^<]*)<\\/(integer|string)>.*/\\2/p;}" "$1" | head -n 1
+    sed -nE "/<key>$2<\\/key>/{n;s/.*<(integer|string)>([^<]*)<\\/(integer|string)>.*/\\2/p;}" "$1" | head -n 1 | xml_unescape
 }
 
 status_job() {
@@ -451,7 +457,7 @@ status_job() {
         return 3
     fi
 
-    bin=$(sed -nE '/<key>ProgramArguments<\/key>/{n;n;s/.*<string>([^<]*)<\/string>.*/\1/p;}' "${plist}" | head -n 1)
+    bin=$(sed -nE '/<key>ProgramArguments<\/key>/{n;n;s/.*<string>([^<]*)<\/string>.*/\1/p;}' "${plist}" | head -n 1 | xml_unescape)
     hour=$(plist_value "${plist}" Hour)
     minute=$(plist_value "${plist}" Minute)
     weekday=$(plist_value "${plist}" Weekday)

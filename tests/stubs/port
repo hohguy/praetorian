@@ -23,6 +23,8 @@
 #   PORT_INFO              per port "p=version_revision,homepage,license"
 #                          (port info --line …; default 1.0_0, no
 #                          homepage, MIT)
+#   PORT_REPLACED_BY       obsolete ports: "p=q" (port info --line
+#                          --replaced_by; default empty)
 #   PORT_DEFAULT_VARIANTS  "p=a,b": default variants (port variants p)
 #   PORT_SELECT            "group=selected=opt1,opt2 …" (port select
 #                          --summary); "port select --set g o" records o
@@ -154,6 +156,11 @@ case "${1:-}" in
                     --revision) line+="${vr##*_}"$'\t' ;;
                     --homepage) line+="${rest%%,*}"$'\t' ;;
                     --license) line+="${rest#*,}"$'\t' ;;
+                    --replaced_by)
+                        r=""
+                        for entry in ${PORT_REPLACED_BY:-}; do [[ "${entry%%=*}" != "${name}" ]] || r=${entry#*=}; done
+                        line+="${r}"$'\t'
+                        ;;
                 esac
             done
             echo "${line%$'\t'}"

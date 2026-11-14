@@ -5,9 +5,145 @@ All notable changes to praetorian are listed here. The format follows
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The version printed by `praetorian --help` and the latest version in the
-README (section "Latest release") must match, and so must the top entry
-of this file: a test checks all three. Git tags start at 1.5.0: the
-earlier versions have none.
+README (section "Latest release") must match, and so must the first
+numbered entry of this file: a test checks all three. Changes merged
+since that release are listed under "Unreleased", above it, until the
+next version takes them. Git tags start at 1.5.0: the earlier versions
+have none.
+
+## Unreleased
+
+### Added
+
+- Settings outside the shell startup files that name a formula's
+  Homebrew paths are now looked for: a Git credential helper
+  (`!/usr/local/bin/gh auth git-credential`), an editor's interpreter, a
+  launch agent or daemon, a crontab line. A read-only search of the
+  configuration files in your home dotfiles, `~/.config`,
+  `~/Library/Application Support`, `~/Library/Preferences`, the launch
+  agents and daemons, and your crontab, for `<prefix>/opt/<formula>`,
+  `<prefix>/Cellar/<formula>/` and the formula's commands in
+  `<prefix>/bin`. Never a block: `--migration-report` notes it on the
+  formula's line, `--migrate` warns before the install and lists the
+  lines again after the uninstall with the MacPorts path, and `--doctor`
+  reports the settings whose Homebrew path is already gone. A binary
+  plist is read with `plutil`, and the MacPorts installer's backup copies
+  (`.zprofile.macports-saved_…`) are skipped.
+- Free disk space is checked again before each formula upgrade, not
+  only before the session: the source downloads and every build eat into
+  it. Below the minimum (5 GB), the formulae left and the casks are
+  skipped, `brew autoremove` and `brew cleanup` still run, and a block
+  lists what wasn't upgraded.
+- With `HOMEBREW_NO_INSTALL_CLEANUP` set, Homebrew no longer removes an
+  upgraded formula's old version: praetorian now runs `brew cleanup
+  <formula>` after each upgrade instead of leaving it to the final
+  cleanup.
+- When a formula and its port have different homepages, the report and
+  `--migrate` can ask both project sites whether one forwards to the
+  other (a project that moved): on a terminal, they ask you once first
+  (the default is no); `--allow-project-site-requests` answers yes in
+  advance. One HEAD request per site, over https, nothing downloaded. A homepage that
+  forwards to the other is the same project, never taken by
+  `--migrate-all`.
+
+### Fixed
+
+- `ci/macos-tests --jobs N` ran no test: the script resets the PATH,
+  and bats needs GNU parallel for `--jobs`. It now keeps `parallel`,
+  and only that, in the PATH.
+- `--migrate` blocked an obsolete MacPorts port (`docbook-xsl`, replaced
+  by `docbook-xsl-nons`) for lack of a binary that will never exist, and
+  the report listed it under "Same name". Both now point to the
+  replacement.
+- `praetorian-sudo-setup` could say "No fingerprint enrolled" with one
+  enrolled: `grep -q` left at the first match and `bioutil`, still
+  writing, failed the pipeline (seen as a test that failed now and
+  then). The output is now read in full first.
+- A formula whose upgrade failed was counted as installed when
+  `brew outdated` failed too (no output, like an up-to-date formula).
+  It now takes a `brew outdated` that succeeds and no longer lists it.
+- `tests/schedule.bats` failed under a umask of 002 (directories
+  writable by the group, which `praetorian-schedule` refuses): the
+  tests set 022.
+- A `PRAETORIAN_HOME` that is a file, can't be written to or can't be
+  created ended in "unexpected error in praetorian" with a log that
+  didn't exist. It's now a block that says which of those it is, before
+  anything is written. One that belongs to another user, or that
+  everyone can write to, is refused too.
+- Without `HOME`, praetorian stopped on bash's "HOME: unbound variable".
+  It now says so in one line.
+- Started as `bash praetorian`, a session failed with "praetorian: not
+  found" (or ran another praetorian found in the `PATH`) when it started
+  itself again under `caffeinate`. It now uses its full path.
+- A lock whose PID had been reused by another program after a crash or a
+  power cut blocked every later session until `.lock` was removed by
+  hand. The lock now counts as held only when that PID is a praetorian.
+- Closing the terminal during a session (`SIGHUP`) ended in "unexpected
+  error": it now stops like Ctrl-C (step killed, lock released, code
+  130).
+- `launchd.stderr.log` grew without limit: past 1 MB, a session keeps
+  its last 500 lines.
+- `praetorian-schedule status` read a `PRAETORIAN_HOME` containing `&`,
+  `<` or `>` as written in the plist (`&amp;`), and found no log there.
+- `ci/macos-tests tests/<file>.bats` ran the whole suite and that file
+  a second time. Given test files, it now runs only those.
+- The "no precompiled MacPorts binary" block gave examples from one Mac
+  ("every mysql port on this Mac") on every Mac. They're gone from the
+  message; the README keeps them, for macOS 15 on Intel.
+- Two homepages of one project were compared as different:
+  `git-lfs.github.com` (the old form of a GitHub Pages address, read as
+  `git-lfs.github.io`: now inconclusive against `git-lfs.com`) and
+  `gi.readthedocs.io/en/latest/` (the language and version of a Read the
+  Docs path are ignored: now the same as `gi.readthedocs.io`).
+- The notes MacPorts gives after installing or upgrading a port ("Some
+  of the ports you installed have notes") only reached the log. The
+  ports that have some are now named, with the `port notes` command
+  that shows them.
+- A progress line wider than the terminal (a long label and MacPorts'
+  "Attempting to fetch … from https://…" in an 80-column window) wrapped,
+  and each redraw left its first screen line behind. It's now cut to the
+  terminal's width.
+
+### Security
+
+- `praetorian-sudo-setup` ran `grep`, `sed`, `awk`, `mv` and `chown` as
+  root from the caller's `PATH`, which sudo keeps on macOS. As root, it
+  now sets the `PATH` to macOS's own directories.
+
+### Changed
+
+- CI: the two jobs stop after 60 minutes instead of GitHub's 6 hours,
+  and Dependabot proposes updates of the actions pinned by commit.
+- Each step waited at least 2 seconds, the interval at which its output
+  is copied to the log and the progress line redrawn, even when the
+  command ended at once (`port select`, `brew link`…). The first second
+  is now checked every 0.5 s: short steps end sooner, and so do the
+  tests. Longer steps are unchanged.
+
+## 1.5.2 - 2026-11-09
+
+### Fixed
+
+- `--doctor` said a formula "isn't installed", and told you to remove its
+  `PATH` entry, when the formula was installed and only its `opt` link
+  was missing. It now says so and gives the `brew link` command.
+- `--doctor` missed a link in the Homebrew prefix that only its owner can
+  read, such as a root-only link an app's installer put in
+  `/usr/local/bin`: `brew cleanup` stops on it. It now reports it, with
+  the `sudo chmod -h 755` that lets you read it and leaves it the owner's.
+
+## 1.5.1 - 2026-11-08
+
+### Fixed
+
+- macOS's own curl (8.7.1) exits 56, not 22, for a 404 over HTTP/2, so
+  the binary check read every 404 as "no answer": the noarch archive
+  names were never tried, and `--migration-report` stopped checking
+  after the first one. It now reads the HTTP code; a 403 or a 5xx is no
+  answer, not a missing archive.
+- `--migration-report` explained every kind of `[ ]` note, even those
+  that didn't appear (a `[brew service running]` legend with no service
+  running): it now explains only the notes listed above it.
 
 ## Unreleased
 
@@ -179,9 +315,6 @@ version carries both.
 
 ### Fixed
 
-- `--migration-report` explained every kind of `[ ]` note, even those
-  that didn't appear (a `[brew service running]` legend with no service
-  running): it now explains only the notes listed above it.
 - `--migrate` compared every `bin` directory of the keg, internal ones
   included (`libexec/bin` of pipx and scons, `lib/rustlib/…/bin` of
   rust): 4 migrations were refused for commands MacPorts has no reason

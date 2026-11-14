@@ -233,6 +233,20 @@ save_port_logs() {
     fi
 }
 
+# MacPorts ends an install or upgrade with "Some of the ports you installed
+# have notes:" and the notes, which only reach the log: says which ports
+# have some, and the command that shows them.
+port_notes_hint() {
+    local -a names=()
+    local n
+    while IFS= read -r n; do names+=("${n}"); done < <(strip_ansi <<<"$1" |
+        sed -nE 's/^ *([^ ]+) has the following notes:$/\1/p' | sort -u)
+    ((${#names[@]} > 0)) || return 0
+    local list="${names[*]}"
+    info "MacPorts has notes for ${list// /, }"
+    say "    ${C_DIM}To read them: port notes $(shq_all "${names[@]}")${C_RESET}"
+}
+
 # After the upgrade: whatever is still outdated failed.
 # port_check_upgrade <counter before> port…
 port_check_upgrade() {
@@ -372,7 +386,10 @@ maintenance_macports() {
         before=${STEP_FAIL}
         run_step "Upgrading ${#ports[@]} MacPorts port(s)" \
             "${SUDO_CMD[@]}" /bin/sh -c "${loop}" "${PORT_BIN}" "${ports[@]}"
-        [[ "${DRY_RUN}" == true ]] || port_check_upgrade "${before}" "${ports[@]}"
+        if [[ "${DRY_RUN}" != true ]]; then
+            port_notes_hint "${STEP_OUT}"
+            port_check_upgrade "${before}" "${ports[@]}"
+        fi
     fi
 
     # Old versions deactivated by upgrades: only when there are some (no

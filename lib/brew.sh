@@ -124,8 +124,13 @@ upgrade_formula() {
     # brew returned an error but the new version is installed (e.g.
     # "Failed to fix install linkage": brew bug at the very end of the
     # install, after the build) → success with a warning.
-    if [[ "${DRY_RUN}" != true ]] &&
-        ! brew outdated --formula --quiet "${f}" 2>/dev/null | grep -qxF "${f}"; then
+    # Only when brew outdated answered (code 0) and no longer lists it:
+    # a brew outdated that fails prints nothing either, and an upgrade
+    # that failed would be counted as done.
+    local still_outdated outdated_rc=0
+    still_outdated=$(brew outdated --formula --quiet "${f}" 2>>"${LOG_FILE}") || outdated_rc=$?
+    if [[ "${DRY_RUN}" != true ]] && ((outdated_rc == 0)) &&
+        ! grep -qxF "${f}" <<<"${still_outdated}"; then
         forget_failure "${label}"
         STEP_OK=$((STEP_OK + 1))
         warn "${f} is installed despite a brew error at the end of the install (see the log)."
@@ -277,6 +282,19 @@ save_build_logs() {
     fi
 }
 
+# brew_cleanup_formula <formula>: removes the formula's old versions and
+# old downloads right after its upgrade, when Homebrew won't:
+# HOMEBREW_NO_INSTALL_CLEANUP turns off the "brew cleanup <formula>" brew
+# upgrade runs by itself. Otherwise they stay until the final brew
+# cleanup, while every next build needs space. Not a step: a failure
+# here is only logged (the final cleanup runs anyway).
+brew_cleanup_formula() {
+    [[ -n "${HOMEBREW_NO_INSTALL_CLEANUP:-}" && "${DRY_RUN}" != true ]] || return 0
+    log_detail "CMD: brew cleanup $1"
+    brew cleanup "$1" >>"${LOG_FILE}" 2>&1 ||
+        log_detail "brew cleanup $1 failed (the final brew cleanup --prune=all runs anyway)"
+}
+
 # ----------------------------------------------------------------------------
 # Homebrew maintenance steps
 # ----------------------------------------------------------------------------
@@ -310,7 +328,7 @@ maintenance_brew() {
     show_quarantine
 
     # --- Formulae: quarantined ones are excluded. -------------------------
-    local outdated skipped todo
+    local outdated skipped todo disk_low=false
     outdated=$(brew outdated --formula --quiet 2>>"${LOG_FILE}" || true)
     skipped=$(quarantined_names formula)
     todo=$(filter_out "${outdated}" "${skipped}")
@@ -327,18 +345,64 @@ maintenance_brew() {
             brew fetch --formula --deps "${formulas[@]}"
         # One at a time: a grouped brew upgrade stops at the first failed
         # build and doesn't even try the remaining formulae.
+        local -a not_done=()
         for f in "${formulas[@]}"; do
+            # Disk below the minimum: every formula left is not upgraded.
+            if [[ "${disk_low}" == true ]]; then
+                not_done+=("${f}")
+                continue
+            fi
             # Already quarantined during this session (dependency of an
             # earlier formula that failed to build): skip.
             if [[ " ${SESSION_QUARANTINED} " == *" ${f} "* ]]; then
                 info "Formula ${f} skipped ${C_DIM}(failed earlier in the session)${C_RESET}"
                 continue
             fi
+            # Free space again before each build: the downloads above and
+            # every build's temporary files eat into what the first check
+            # saw. Below the minimum, stop here rather than fill the disk
+            # in the middle of an install.
+            if ! disk_space_ok; then
+                disk_low=true
+                not_done+=("${f}")
+                continue
+            fi
             upgrade_formula "${f}"
+            brew_cleanup_formula "${f}"
         done
+        if [[ "${disk_low}" == true ]]; then
+            block "disk space ran low during the formula upgrades (${DISK_FREE_GB} GB free, minimum ${DISK_MIN_GB} GB)" \
+                "The source downloads and each build's temporary files ate into the space checked at the start. A disk filling up in the middle of an install leaves a half-installed package." \
+                "Not upgraded: ${not_done[*]}. The casks were skipped too. brew autoremove and brew cleanup still ran, to give space back." \
+                "Free some space, for example:" \
+                "  sudo port reclaim            (MacPorts: inactive versions, sources)" \
+                "  empty the Trash and ~/Library/Caches" \
+                "then run praetorian again: the formulae left are upgraded then."
+        fi
     fi
 
-    # --- Casks: one at a time, so a broken cask doesn't block the others.
+    # --- Casks: skipped when the disk ran low above, their downloads need
+    # space too.
+    if [[ "${disk_low}" == true ]]; then
+        info "Apps (casks) skipped: not enough disk space (see the block above)."
+    else
+        maintenance_casks
+    fi
+
+    run_step "Removing orphaned dependencies (brew autoremove)" \
+        brew autoremove
+
+    # brew cleanup --prune=all deletes ~/Library/Logs/Homebrew: keep this
+    # session's build logs first.
+    save_build_logs
+
+    run_step "Cleaning caches and dead links (brew cleanup)" \
+        brew cleanup --prune=all
+}
+
+# Casks (apps), one at a time: a broken one doesn't block the others.
+maintenance_casks() {
+    local outdated skipped todo
     [[ "${DRY_RUN}" == true ]] || repair_interrupted_casks
     local -a cask_flags=()
     [[ "${GREEDY}" == true ]] && cask_flags=(--greedy)
@@ -361,14 +425,4 @@ maintenance_brew() {
         # shellcheck disable=SC2034  # read by run_step (session.sh)
         SHOW_PROGRESS=true
     fi
-
-    run_step "Removing orphaned dependencies (brew autoremove)" \
-        brew autoremove
-
-    # brew cleanup --prune=all deletes ~/Library/Logs/Homebrew: keep this
-    # session's build logs first.
-    save_build_logs
-
-    run_step "Cleaning caches and dead links (brew cleanup)" \
-        brew cleanup --prune=all
 }

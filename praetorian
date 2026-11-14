@@ -27,9 +27,10 @@
 # Usage   : ./praetorian [--dry-run] [--no-greedy] [--retry-quarantined]
 #                        [--unattended] [--notify | --no-notify]
 #                        [--ac-power-only] [--quiet] [--help]
-#           ./praetorian --migration-report | --status | --doctor | --sbom
+#           ./praetorian [--allow-project-site-requests] --migration-report
+#           ./praetorian --status | --doctor | --sbom
 #           ./praetorian [--dry-run] --prune
-#           ./praetorian [--dry-run] [--allow-build] --migrate <formula>[=<port>[,<port>…]] [--migrate …]
+#           ./praetorian [--dry-run] [--allow-build] [--allow-project-site-requests] --migrate <formula>[=<port>[,<port>…]] [--migrate …]
 #           ./praetorian [--dry-run] [--allow-build] [--limit <N>] [--exclude <f>,…] --migrate-all
 #           (--migrate=<spec> works too; -h = --help)
 # Author  : victor-sys-admin
@@ -46,10 +47,18 @@
 #
 set -euo pipefail
 
+# HOME locates everything (state directory, shell startup files, pipx):
+# without it, "set -u" would stop on the first line that reads it, with
+# bash's own message. Plain output: nothing is loaded yet.
+if [[ "${HOME:-}" != /* ]]; then
+    echo "praetorian: HOME is not an absolute path (${HOME:-not set}): set it, then run praetorian again." >&2
+    exit 1
+fi
+
 # ----------------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------------
-readonly PRAETORIAN_VERSION="1.5.0"
+readonly PRAETORIAN_VERSION="1.5.2"
 # State directory (logs, quarantine, lock): PRAETORIAN_HOME from the
 # environment, ~/praetorian by default. Checked by check_home once lib/
 # is loaded, before anything is written.
@@ -113,6 +122,9 @@ MIGRATE_ALL=false           # --migrate-all
 ALLOW_BUILD=false           # --allow-build: MacPorts may compile (migrations and upgrades)
 MIGRATE_LIMIT=0             # --limit N: at most N migrations per run (0: no limit)
 MIGRATE_EXCLUDE=""          # --exclude a,b: formulae skipped this run (one per line)
+# --allow-project-site-requests: ask the project sites of differing
+# homepages without a question.
+ALLOW_PROJECT_SITE_REQUESTS=false
 DRY_RUN=false
 GREEDY=true
 QUIET=false
@@ -264,20 +276,54 @@ source "${PRAETORIAN_ROOT}/lib/status.sh"
 # shellcheck source=lib/sbom.sh
 source "${PRAETORIAN_ROOT}/lib/sbom.sh"
 
-# PRAETORIAN_HOME must be an absolute path on one line: a relative one
+# PRAETORIAN_HOME must be an absolute path on one line (a relative one
 # would follow the current directory, a newline would break the paths
-# written to the log. Plain output: block() writes to the log, which
-# lives under that very directory.
-check_home() {
-    if [[ "${PRAETORIAN_HOME}" == /* && "${PRAETORIAN_HOME}" != *$'\n'* ]]; then
+# written to the log), and a directory praetorian can keep its state in:
+# yours, or one it can create. home_problem says why it isn't, nothing
+# when it is. Nothing is created here.
+#   - belongs to another user, or writable by everyone: whoever can write
+#     there could point the log, the lock or the quarantine somewhere else
+#     through a link. A group-writable one is left alone: it holds no
+#     code, and a umask of 002 makes every new directory group-writable.
+home_problem() {
+    local p=${PRAETORIAN_HOME}
+    if [[ "${p}" != /* || "${p}" == *$'\n'* ]]; then
+        echo "PRAETORIAN_HOME must be an absolute path on a single line; got: $(printf '%q' "${p}")"
         return 0
     fi
+    if [[ -e "${p}" || -L "${p}" ]]; then
+        if [[ ! -d "${p}" ]]; then
+            echo "${p} exists but is not a directory."
+        elif [[ -n "$(find -L "${p}" -maxdepth 0 ! -user "$(id -u)" 2>/dev/null)" ]]; then
+            echo "${p} belongs to another user."
+        elif [[ -n "$(find -L "${p}" -maxdepth 0 -perm -0002 2>/dev/null)" ]]; then
+            echo "${p} is writable by everyone."
+        elif [[ ! -w "${p}" ]]; then
+            echo "${p} is not writable by you."
+        fi
+        return 0
+    fi
+    # Not there yet: praetorian creates it, in the closest directory
+    # above that exists.
+    while [[ "${p}" != / && ! -e "${p}" && ! -L "${p}" ]]; do
+        p=$(dirname "${p}")
+    done
+    [[ -d "${p}" && -w "${p}" ]] ||
+        echo "${PRAETORIAN_HOME} can't be created: ${p} is not a directory you can write to."
+}
+
+# Plain output: block() writes to the log, which lives under that very
+# directory.
+check_home() {
+    local problem
+    problem=$(home_problem)
+    [[ -n "${problem}" ]] || return 0
     {
         echo ""
         echo "${C_RED}${C_BOLD}✗ BLOCKED: PRAETORIAN_HOME is not usable${C_RESET}"
-        echo "    Why        : PRAETORIAN_HOME must be an absolute path on a single line; got: $(printf '%q' "${PRAETORIAN_HOME}")"
+        echo "    Why        : ${problem}"
         echo "    Impact     : Nothing was done: no command was run, no log was written."
-        echo "    What to do : Set an absolute path, e.g. export PRAETORIAN_HOME=\"\${HOME}/praetorian\","
+        echo "    What to do : Set an absolute path to a directory of yours, e.g. export PRAETORIAN_HOME=\"\${HOME}/praetorian\","
         echo "                 or unset it to use the default (~/praetorian)."
         echo ""
     } >&2
@@ -347,12 +393,19 @@ Homebrew → MacPorts migration:
   --exclude <formula>[,<formula>…]
                 Skips these formulae in this run (e.g. git,go); listed as
                 skipped. Repeatable.
+  --allow-project-site-requests
+                When a formula and its port have different homepages, sends
+                one request to each project's site to see whether one
+                forwards to the other (a project that moved), without asking
+                you first. Without it, the report and --migrate ask you on a
+                terminal, and send nothing otherwise.
 
 Status and cleanup:
   --status      Read-only: what is migrated, what is left in Homebrew and
                 why, removable leftovers, and the last sessions.
   --doctor      Read-only health check: broken pipx environments, files
                 Homebrew can't clean, dead PATH entries, broken links,
+                settings that name a Homebrew path that is gone,
                 ports MacPorts could remove by mistake… with the command
                 that fixes each one.
   --prune       Removes the Homebrew dependencies nothing uses any more
@@ -442,6 +495,7 @@ parse_args() {
                     MIGRATE_EXCLUDE+="${MIGRATE_EXCLUDE:+$'\n'}${x}"
                 done
                 ;;
+            --allow-project-site-requests) ALLOW_PROJECT_SITE_REQUESTS=true ;;
             --migrate-all)
                 set_mode migrate "$1"
                 MIGRATE_ALL=true
@@ -501,7 +555,10 @@ main() {
         [[ "${MODE}" != report && "${MODE}" != status && "${MODE}" != doctor && "${MODE}" != sbom ]] &&
         command -v caffeinate >/dev/null 2>&1; then
         export PRAETORIAN_CAFFEINATED=1
-        exec caffeinate -i "$0" "$@"
+        # Not "$0": started as "bash praetorian", it has no "/" and
+        # caffeinate would look for it in the PATH (not found, or another
+        # praetorian).
+        exec caffeinate -i "${PRAETORIAN_ROOT}/praetorian" "$@"
     fi
 
     # No terminal (launchd, cron, pipe): nobody to type a password, switch

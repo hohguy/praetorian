@@ -52,7 +52,9 @@ on_interrupt() {
     loud "Session log: ${C_DIM}${LOG_FILE}${C_RESET}"
     finish 130
 }
-trap on_interrupt INT TERM
+# HUP too (terminal closed): otherwise bash dies without killing the
+# running step, and the exit is reported as an unexpected error.
+trap on_interrupt INT TERM HUP
 
 STEP_TMP=""
 SESSION_STAMP="" # stamp file: its mtime = session start
@@ -96,6 +98,28 @@ trap on_exit EXIT
 # ----------------------------------------------------------------------------
 # Running a step, with its full output in the log
 # ----------------------------------------------------------------------------
+# progress_line <columns> <seconds> <label> <current>: the progress line of
+# a step, "  MM:SS label — current", cut to fit on one screen line. \r only
+# goes back to the start of the last screen line, so a line that wraps
+# can't be redrawn in place. One column is kept spare, for a character
+# shown two columns wide (🍺).
+progress_line() {
+    local columns=$1 label=$3 current=$4 time room
+    time=$(printf '%02d:%02d' $(($2 / 60)) $(($2 % 60)))
+    # "  " + time + " " before the label, " — " before the current action.
+    room=$((columns - 1 - 3 - ${#time} - ${#label} - 3))
+    if ((room > 0)); then
+        current=${current:0:room}
+    else
+        current=""
+        room=$((columns - 1 - 3 - ${#time} - 1))
+        ((room > 0)) || room=0
+        label=${label:0:room}
+    fi
+    printf '  %s%s%s %s %s' "${C_DIM}" "${time}" "${C_RESET}" "${label}" \
+        "${C_DIM}${current:+— ${current}}${C_RESET}"
+}
+
 # run_step "Readable label" cmd arg1 arg2 ...
 # Does NOT make the script fail on error: records it and moves on.
 run_step() {
@@ -120,13 +144,16 @@ run_step() {
     [[ -n "${STEP_TMP}" ]] || STEP_TMP=$(mktemp -t praetorian)
     : >"${STEP_TMP}"
     CURRENT_STEP=${label}
-    local rc=0 start offset=0 size elapsed current
+    local rc=0 start offset=0 size elapsed current polls=0 columns
     start=$(date +%s)
     set +e
     "$@" <&3 >"${STEP_TMP}" 2>&1 &
     STEP_PID=$!
     while kill -0 "${STEP_PID}" 2>/dev/null; do
-        sleep 2
+        # Every 0.5 s during the first second, then every 2 s: a step that
+        # ends at once (port select, brew link…) doesn't wait 2 s for it.
+        if ((polls < 2)); then sleep 0.5; else sleep 2; fi
+        polls=$((polls + 1))
         size=$(wc -c <"${STEP_TMP}" | tr -d ' ')
         if ((size > offset)); then
             tail -c +$((offset + 1)) "${STEP_TMP}" | head -c $((size - offset)) >>"${LOG_FILE}"
@@ -135,8 +162,9 @@ run_step() {
         if [[ -t 1 && "${QUIET}" != true && "${SHOW_PROGRESS}" == true ]] && ((size > 0)); then
             elapsed=$(($(date +%s) - start))
             current=$(grep -E '^(==>|🍺|--->)' "${STEP_TMP}" | tail -n 1 | strip_ansi | cut -c1-70)
-            printf '\r\033[K  %s%02d:%02d%s %s %s' "${C_DIM}" $((elapsed / 60)) $((elapsed % 60)) \
-                "${C_RESET}" "${label}" "${C_DIM}${current:+— ${current}}${C_RESET}"
+            columns=$(stty size </dev/tty 2>/dev/null) || columns=""
+            columns=${columns#* }
+            printf '\r\033[K%s' "$(progress_line "${columns:-80}" "${elapsed}" "${label}" "${current}")"
         fi
     done
     wait "${STEP_PID}"
@@ -433,9 +461,24 @@ check_prerequisites() {
 }
 
 # Disk space: a build (node, openjdk…) or a MacPorts upgrade can use
-# several GB of temporary space.
+# several GB of temporary space. Checked before anything runs
+# (check_disk_space), then again before each formula's upgrade
+# (disk_space_ok): the source downloads and each build eat into it.
+DISK_MIN_GB=5   # minimum, read from MIN_FREE_GB by check_disk_space
+DISK_FREE_GB="" # free space at the last check, GB
+
+# free_space_gb: free space on the volume of HOME (where Homebrew,
+# MacPorts and the temporary files live), in whole GB; nothing when df
+# can't say.
+free_space_gb() {
+    local avail_kb
+    avail_kb=$(df -Pk "${HOME}" 2>/dev/null | awk 'NR == 2 {print $4}')
+    [[ "${avail_kb}" =~ ^[0-9]+$ ]] || return 0
+    echo $((avail_kb / 1048576))
+}
+
 check_disk_space() {
-    local avail_kb gb min=${MIN_FREE_GB}
+    local gb min=${MIN_FREE_GB}
     # MIN_FREE_GB comes from the environment (PRAETORIAN_MIN_FREE_GB): a
     # non-number inside (( )) would be evaluated as an expression, which
     # can run commands ("a[$(cmd)]"). Digits only, read as decimal.
@@ -445,12 +488,14 @@ check_disk_space() {
         warn "PRAETORIAN_MIN_FREE_GB is not a whole number of GB: default 5 GB used."
         min=5
     fi
-    avail_kb=$(df -Pk "${HOME}" 2>/dev/null | awk 'NR == 2 {print $4}')
-    if [[ ! "${avail_kb}" =~ ^[0-9]+$ ]]; then
+    DISK_MIN_GB=${min}
+    gb=$(free_space_gb)
+    if [[ -z "${gb}" ]]; then
         warn "Free disk space unknown (unreadable df output): check skipped."
         return 0
     fi
-    gb=$((avail_kb / 1048576))
+    # shellcheck disable=SC2034  # read by maintenance_brew (brew.sh)
+    DISK_FREE_GB=${gb}
     log_detail "Free space: ${gb} GB"
     if ((gb < min)); then
         if [[ "${DRY_RUN}" == true ]]; then
@@ -469,6 +514,20 @@ check_disk_space() {
     elif ((gb < WARN_FREE_GB)); then
         warn "Only ${gb} GB free: a big build could fill the disk."
     fi
+}
+
+# disk_space_ok: true while the free space is still at least DISK_MIN_GB
+# (sets DISK_FREE_GB). True too when df can't say (the first check
+# already warned), and on a dry-run, which builds nothing.
+disk_space_ok() {
+    local gb
+    [[ "${DRY_RUN}" != true ]] || return 0
+    gb=$(free_space_gb)
+    [[ -n "${gb}" ]] || return 0
+    # shellcheck disable=SC2034  # read by maintenance_brew (brew.sh)
+    DISK_FREE_GB=${gb}
+    log_detail "Free space: ${gb} GB"
+    ((gb >= DISK_MIN_GB))
 }
 
 # --ac-power-only (set by praetorian-schedule): on battery, a session that
@@ -547,6 +606,8 @@ check_network() {
 # Races handled:
 #   - the PID is written to a temporary file then renamed (atomic): a
 #     reader never sees a half-written PID;
+#   - a PID that is running but isn't praetorian (reused after a crash)
+#     is a stale lock (see lock_holder_alive);
 #   - a lock with no PID yet is a session that is just starting, unless
 #     the directory is older than a minute (session killed between mkdir
 #     and the PID write);
@@ -561,6 +622,21 @@ lock_pid() {
     cat "$1/pid" 2>/dev/null || true
 }
 
+# lock_holder_alive <pid>: the PID in the lock is a running praetorian.
+# A process that exists isn't enough: after a crash or a power cut, the
+# PID can be reused by another of your programs, and every later session
+# (the nightly ones too) would stay blocked by it. So the command of that
+# PID must name praetorian. When ps can't say (no ps, or one without -p
+# as in BusyBox), the process counts as praetorian: blocking wrongly is
+# safer than two sessions at once.
+lock_holder_alive() {
+    local pid=$1 cmd
+    kill -0 "${pid}" 2>/dev/null || return 1
+    cmd=$(ps -ww -p "${pid}" -o command= 2>/dev/null) || return 0
+    [[ -n "${cmd}" ]] || return 0
+    grep -qE '(^|[/ ])praetorian( |$)' <<<"${cmd}"
+}
+
 # lock_is_recent <dir>: modified less than LOCK_STALE_AGE_MIN minutes ago.
 lock_is_recent() {
     [[ -n "$(find "$1" -maxdepth 0 -mmin "-${LOCK_STALE_AGE_MIN}" 2>/dev/null)" ]]
@@ -573,7 +649,7 @@ lock_busy() {
         "This session did nothing." \
         "Wait for the other session to finish:  ps -p ${pid} -o command=" \
         "or stop it cleanly:                    kill ${pid}" \
-        "If this PID is NOT praetorian (PID reused): rm -rf ${LOCK_DIR}"
+        "If this PID is NOT a praetorian session:  rm -rf ${LOCK_DIR}"
     finish 1
 }
 
@@ -590,7 +666,7 @@ acquire_lock() {
     if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
         local pid stale="${LOCK_DIR}.stale.$$"
         pid=$(lock_pid "${LOCK_DIR}")
-        if [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then
+        if [[ "${pid}" =~ ^[0-9]+$ ]] && lock_holder_alive "${pid}"; then
             lock_busy "${pid}"
         fi
         if [[ -z "${pid}" ]] && lock_is_recent "${LOCK_DIR}"; then
@@ -608,7 +684,7 @@ acquire_lock() {
             lock_lost_race "${LOCK_DIR} was taken over in the meantime: another session has probably just started."
         fi
         rm -rf "${stale}"
-        warn "Lock left by a session that ended abruptly (PID ${pid:-unknown}, no longer running): taken over."
+        warn "Lock left by a session that ended abruptly (PID ${pid:-unknown}, no longer running or reused by another program): taken over."
         if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
             lock_lost_race "${LOCK_DIR} was created again in the meantime: another session has probably just started."
         fi
@@ -644,6 +720,30 @@ rotate_logs() {
     for pattern in 'praetorian_*[0-9].log' 'praetorian_*_buildlogs.tar.gz' 'praetorian_*_portlogs.tar.gz'; do
         rotate_pattern "${pattern}"
     done
+    trim_launchd_stderr
+}
+
+# launchd's stderr file (praetorian-schedule): launchd only ever appends
+# to it, every block of every night. Past LAUNCHD_STDERR_MAX bytes, only
+# its last LAUNCHD_STDERR_KEEP lines are kept. Rewritten in place, not
+# replaced: launchd keeps the file open while a scheduled session runs.
+readonly LAUNCHD_STDERR_MAX=1048576
+readonly LAUNCHD_STDERR_KEEP=500
+trim_launchd_stderr() {
+    local f="${LOG_DIR}/launchd.stderr.log" size kept
+    [[ -f "${f}" && ! -L "${f}" ]] || return 0
+    size=$(wc -c <"${f}" | tr -d ' ')
+    [[ "${size}" =~ ^[0-9]+$ ]] || return 0
+    ((size > LAUNCHD_STDERR_MAX)) || return 0
+    if [[ "${DRY_RUN}" == true ]]; then
+        log_detail "ROTATION (dry-run): ${f} (${size} bytes) would be cut to its last ${LAUNCHD_STDERR_KEEP} lines"
+        return 0
+    fi
+    kept=$(mktemp -t praetorian_stderr) || return 0
+    if tail -n "${LAUNCHD_STDERR_KEEP}" "${f}" >"${kept}" 2>/dev/null && cat "${kept}" >"${f}" 2>/dev/null; then
+        log_detail "Log cut to its last ${LAUNCHD_STDERR_KEEP} lines: ${f} (was ${size} bytes)"
+    fi
+    rm -f "${kept}"
 }
 
 # rotate_candidates <pattern>: the files to remove, one per line. Sorted

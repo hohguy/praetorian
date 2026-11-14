@@ -40,15 +40,17 @@ log_detail() {
 }
 
 # say: prints on screen (unless --quiet) AND logs.
+# "|| true": a terminal that went away (window closed) must not turn the
+# next message into a failure that stops the cleanup.
 say() {
-    [[ "${QUIET}" == true ]] || printf '%s\n' "$*"
+    [[ "${QUIET}" == true ]] || printf '%s\n' "$*" 2>/dev/null || true
     log_detail "OUT: $*"
 }
 
 # loud: always printed, even with --quiet (on stderr): a block must never
 # go unnoticed.
 loud() {
-    printf '%s\n' "$*" >&2
+    printf '%s\n' "$*" >&2 2>/dev/null || true
     log_detail "OUT: $*"
 }
 

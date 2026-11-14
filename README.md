@@ -20,9 +20,9 @@ It runs on any Mac with macOS's own `/bin/bash` 3.2 and Homebrew and/or MacPorts
 
 ## Latest release
 
-### 1.5.0 (2026-10-18)
+### 1.5.2 (2026-11-09)
 
-Migration in batches (`--migrate` repeated, `--migrate-all`) with companion ports, a table of known MacPorts traps, homepage and precompiled-binary checks, and commands checked where the shell finds them; read-only `--status`, `--doctor` and `--sbom`; `--prune` for the dependencies `brew autoremove` misses; unattended sessions wait for the network; logs under 7 days are never rotated away. 1.4.0 added the overnight scheduling (`praetorian-schedule`) and the notifications. Full list and earlier versions: [CHANGELOG.md](CHANGELOG.md).
+`--doctor` no longer calls an installed formula "not installed" when only its `opt` link is missing (it gives the `brew link` command), and it reports a link in the Homebrew prefix that only its owner can read, which stops `brew cleanup` (with the `sudo chmod -h 755` that fixes it). 1.5.1 made the precompiled-binary check read the HTTP code, so a missing archive is found missing with macOS's own curl too, and `--migration-report` explain only the `[ ]` notes it shows. 1.5.0 brought migration in batches (`--migrate` repeated, `--migrate-all`) with companion ports, a table of known MacPorts traps, homepage and precompiled-binary checks, and commands checked where the shell finds them; read-only `--status`, `--doctor` and `--sbom`; `--prune` for the dependencies `brew autoremove` misses; unattended sessions wait for the network; logs under 7 days are never rotated away. 1.4.0 added the overnight scheduling (`praetorian-schedule`) and the notifications. Full list and earlier versions: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -133,13 +133,14 @@ MacPorts also needs Xcode or at least the Command Line Tools, even though it mos
 | Tool | Used for |
 |---|---|
 | `bash` | Runs the script. macOS's own `/bin/bash` 3.2 is enough: the code avoids associative arrays, `mapfile` and negative array indices. A newer bash from Homebrew or MacPorts works too |
-| `awk`, `sed`, `grep`, `cut`, `tr`, `sort`, `comm`, `wc`, `head`, `tail`, `cmp`, `xargs` | Parsing brew and port output, the quarantine file and shell startup files |
+| `awk`, `sed`, `grep`, `cut`, `tr`, `sort`, `comm`, `wc`, `head`, `tail`, `cmp`, `xargs` | Parsing brew and port output, the quarantine file, shell startup files and other settings |
+| `crontab` | Read-only (`crontab -l`): lines that name a Homebrew path |
 | `find`, `ls`, `cat`, `cp`, `mkdir`, `rm`, `mv`, `basename`, `dirname`, `readlink`, `mktemp` | Logs, temp files, lock, Caskroom repair and backup, spotting commands installed twice, finding `lib/` through symbolic links, ownership checks of `port` |
 | `id` | Owner check of the `lib/` files before they're loaded |
 | `tar` | Archiving Homebrew and MacPorts build logs before cleanup |
 | `df` | Free disk space check |
-| `date`, `sleep`, `uname`, `sw_vers` | Timestamps, progress line, Intel detection, macOS version in the log |
-| `pgrep`, `kill` | Stopping the whole process tree on Ctrl-C; checking the PID in the lock |
+| `date`, `sleep`, `stty`, `uname`, `sw_vers` | Timestamps, progress line and its width, Intel detection, macOS version in the log |
+| `pgrep`, `kill`, `ps` | Stopping the whole process tree on Ctrl-C; checking that the PID in the lock is a running praetorian |
 | `caffeinate` | Keeping the Mac awake during a session |
 | `xcode-select`, `xcodebuild` | Xcode readiness check; Metal Toolchain download |
 | `curl` | Unattended: waiting for the network (a HEAD request to `github.com`); `--migrate`: is there a precompiled MacPorts binary (HEAD requests to `packages.macports.org`, nothing downloaded) |
@@ -150,7 +151,7 @@ MacPorts also needs Xcode or at least the Command Line Tools, even though it mos
 | `mdls` (Spotlight) | Last-used date of apps in `/Applications` |
 | `osascript` | End-of-session notification (unattended, sessions of 5 minutes or more, `--notify`) |
 | `pmset` | Power source check (`--ac-power-only`) |
-| `launchctl`, `plutil` | `praetorian-schedule`: loading the job, checking its plist |
+| `launchctl`, `plutil` | `praetorian-schedule`: loading the job, checking its plist; `plutil` also reads the binary plists found by the settings search (`--doctor`, `--migration-report`, `--migrate`) |
 
 `--doctor`, `--prune`, `--migrate` and `--sbom` also look at `pipx` environments and `npm` global packages when those are installed, and `--sbom` summarizes what `trivy` finds when it is installed. None of them is required: a missing one is skipped and said so.
 
@@ -158,7 +159,7 @@ The disk needs at least 5 GB free (20 GB recommended); below that, praetorian st
 
 ### Optional: Touch ID for sudo
 
-`praetorian-sudo-setup` (run once with sudo) uses `bioutil` to check that a fingerprint is enrolled, and `cp`, `sed`, `awk`, `chmod` and `chown` to write `/etc/pam.d/sudo_local`. It needs a Mac with Touch ID; without one, sudo simply asks for the password.
+`praetorian-sudo-setup` (run once with sudo) uses `bioutil` to check that a fingerprint is enrolled, and `cp`, `sed`, `awk`, `chmod` and `chown` to write `/etc/pam.d/sudo_local`: macOS's own, since as root it sets its `PATH` to `/usr/bin:/bin:/usr/sbin:/sbin`. It needs a Mac with Touch ID; without one, sudo simply asks for the password.
 
 ### Optional: overnight runs
 
@@ -196,8 +197,9 @@ The same tests also run **on macOS under `/bin/bash` 3.2** with `ci/macos-tests`
 | `--allow-build` | Lets MacPorts compile from source (hours, maybe a failure), for `--migrate` and for upgrades in the maintenance session. Without it, both are binary-only (`port -b`), dependencies included. |
 | `--limit <N>` | With `--migrate-all` or several `--migrate`: stops after N successful migrations; the rest are listed as skipped. Run it again for the next N. Blocked formulae don't count. |
 | `--exclude <formula>[,…]` | With `--migrate-all` or `--migrate`: skips these formulae in this run (`--exclude git,go`). Repeatable. |
+| `--allow-project-site-requests` | When a formula and its port have different homepages, lets `--migration-report` and `--migrate` ask both project sites whether one forwards to the other, without asking you first (see [Same project? Same homepage](#same-project-same-homepage)). |
 | `--status` | Read-only summary of the real state, checked against brew and port rather than the logs: the formulae in `migrated.tsv` (flagged when the formula is still installed, or a port is missing or not marked requested), the formulae still installed on request and why (quarantined, a same-name port to migrate to, the exact spec for a [known trap](#known-traps), likely port names, no port found), leftover dependencies (`brew leaves` nobody asked for: it points to `praetorian --dry-run --prune`, never to `port uninstall leaves`, which could remove migrated ports still marked as dependencies), cask / formula / port counts, and the last 10 sessions from their logs, one line each (date, mode, migration target, outcome, duration). No sudo, no lock. |
-| `--doctor` | Read-only health check. Lists what breaks around Homebrew and MacPorts without either noticing, each with the command that fixes it: broken pipx environments (or ones still on a Homebrew Python), files in the Homebrew prefix that `brew cleanup` can't remove because they aren't yours, dead `PATH` entries (with the shell file and line), broken JDK links, empty Cellar directories, npm global packages left without `node` (a node not from Homebrew, such as the nodejs.org installer in `/usr/local`, keeps its packages), migrated ports MacPorts could remove by mistake, casks from an untrusted tap, stale Command Line Tools headers. Each check is skipped when its tool isn't there. Every name in a printed command is shell-quoted, so pasting a fix can't run anything else. Changes nothing, never runs sudo, takes no lock. See [Troubleshooting](#something-broke-after-a-migration-or-brew-cleanup-fails-every-night). |
+| `--doctor` | Read-only health check. Lists what breaks around Homebrew and MacPorts without either noticing, each with the command that fixes it: broken pipx environments (or ones still on a Homebrew Python), files in the Homebrew prefix that `brew cleanup` can't remove because they aren't yours, dead `PATH` entries (with the shell file and line), broken JDK links, empty Cellar directories, npm global packages left without `node` (a node not from Homebrew, such as the nodejs.org installer in `/usr/local`, keeps its packages), migrated ports MacPorts could remove by mistake, casks from an untrusted tap, stale Command Line Tools headers, and settings that still name a Homebrew path that is gone (see [Settings that name a Homebrew path](#settings-that-name-a-homebrew-path)). Each check is skipped when its tool isn't there. Every name in a printed command is shell-quoted, so pasting a fix can't run anything else. Changes nothing, never runs sudo, takes no lock. See [Troubleshooting](#something-broke-after-a-migration-or-brew-cleanup-fails-every-night). |
 | `--prune` | Removes the Homebrew dependencies nothing uses any more, which `brew autoremove` misses ([decision 26](#26-prune-what-brew-autoremove-misses)). Shows each round and asks before removing it (default: no); removing one round can free the next, up to 10 rounds. With `--dry-run`, only lists the first round. Unattended, removes nothing (listed as deferred). Never removes a formula you installed yourself, or one a pipx environment, npm package, Homebrew service or shell startup file still uses. MacPorts' unused dependencies are only reported, with the command to remove them. |
 | `--sbom` | Writes a CycloneDX 1.6 SBOM of the installed software to `logs/sbom_<timestamp>.cdx.json`: Homebrew formulae and casks, active MacPorts ports (with their variants), apps in `/Applications` and `~/Applications`, pipx environments (`PIPX_HOME` honoured) and npm global packages; a missing tool is skipped and said so. Then lists what was added, removed or changed since the previous SBOM (15 names per list on screen, all of them in the log). The JSON is built with Python (`/usr/bin/python3` once the Command Line Tools or Xcode are there, otherwise a `python3` from the `PATH`); without one, praetorian blocks and says what to install. If `trivy` is installed, its HIGH and CRITICAL findings are summarized: it only knows the pypi and npm packages, so a clean result says nothing about the Homebrew and MacPorts ones. On first use trivy downloads its vulnerability database from an external registry and keeps it in `~/.cache/trivy` (trivy's own behaviour). Read-only, no lock ([decision 27](#27-an-sbom-written-by-a-json-library)). |
 | `--help`, `-h` | Usage. |
@@ -268,7 +270,7 @@ During the transition both run side by side (`/opt/local` and `/usr/local` don't
 
 ### Migrating, one formula at a time
 
-1. `praetorian --migration-report` sorts the formulae you installed yourself (`brew leaves`) into groups: same name in MacPorts, same name but maybe a different project (the homepages differ, see [below](#same-project-same-homepage)), probable other name, and not found. [Known traps](#known-traps) come first, with the exact spec to use. It flags what would block a migration: a running `brew services` service, shell startup files pointing into the formula's Homebrew paths, or `[no binary for this Mac]`. The "Same name" group says how many formulae `--migrate-all` would take. Dependencies aren't listed: once nothing uses them, `--prune` removes them (`brew autoremove` misses many, see [decision 26](#26-prune-what-brew-autoremove-misses)).
+1. `praetorian --migration-report` sorts the formulae you installed yourself (`brew leaves`) into groups: same name in MacPorts, same name but maybe a different project (the homepages differ, see [below](#same-project-same-homepage)), probable other name, and not found. [Known traps](#known-traps) come first, with the exact spec to use. It flags what would block a migration: a running `brew services` service, shell startup files pointing into the formula's Homebrew paths, or `[no binary for this Mac]`. A formula whose Homebrew paths are named by other settings gets `(settings name it: ~/.gitconfig, …)`, which doesn't block (see [below](#settings-that-name-a-homebrew-path)). The "Same name" group says how many formulae `--migrate-all` would take. Dependencies aren't listed: once nothing uses them, `--prune` removes them (`brew autoremove` misses many, see [decision 26](#26-prune-what-brew-autoremove-misses)).
 
    For formulae that aren't known traps, the "probable other name" guesses, most likely first:
 
@@ -290,8 +292,9 @@ During the transition both run side by side (`/opt/local` and `/usr/local` don't
 | 2 | `brew uses --installed` | another formula depends on it (one migrated earlier in the same session doesn't count) |
 | 3 | `homebrew.mxcl.<formula>.plist` | it runs as a Homebrew service |
 | 4 | `~/.zshrc`, `~/.zprofile`, `~/.bash_profile`… | a line uses `<prefix>/opt/<formula>` or `Cellar/<formula>/` (it would point to nothing). Commented lines are ignored |
+| | [other settings](#settings-that-name-a-homebrew-path) that name the formula's paths | never: a warning with the files and lines, listed again after step 12 with the MacPorts path |
 | 5 | [known traps](#known-traps) | no `=<port>` was given for a formula of that table |
-| 6 | `port info --name <port>`, for each port | a port doesn't exist |
+| 6 | `port info --name <port>`, for each port | a port doesn't exist, or is obsolete (`replaced_by`: `port install` would install its replacement instead). The block gives the spec with the replacement |
 | 7 | [homepages](#same-project-same-homepage) | they differ and the port was only guessed from the name (a warning with `=<port>`) |
 | 8 | [`packages.macports.org`](#a-binary-for-this-mac) | no precompiled archive for this Mac (unless `--allow-build`). Skipped for ports already active |
 | 9 | `sudo port -b -N install <port>`, for each port (`-N install` with `--allow-build`) | sudo is impossible (unattended), `port` can't be trusted with root (see [Security](#security-how-sudo-is-handled)), the install fails or sudo is refused. A port already active is not reinstalled: `sudo port setrequested <port>` marks it as wanted, so `port uninstall leaves` won't remove it |
@@ -302,6 +305,24 @@ During the transition both run side by side (`/opt/local` and `/usr/local` don't
 A successful migration is recorded in `migrated.tsv` (every port of the spec, comma-separated). The order is deliberate: at every point before step 12, the Homebrew version is untouched and still works. If step 10 or 11 fails, both are installed, which is harmless. With `--dry-run`, steps 1 to 8 and 11 run, and the install and uninstall are only listed.
 
 3. Start with the formulae that hurt the most (long builds, quarantined), check your tools after each migration, and stop when only casks are left: Homebrew then has nothing to compile. Small, standalone tools (`wget`, `jq`, `tree`…) make good first migrations, and `--dry-run --migrate-all` shows which formulae can go in one batch; formulae referenced in your shell files come later, once those lines are updated.
+
+#### Settings that name a Homebrew path
+
+The shell startup files aren't the only place a command is named by its full path. `gh auth setup-git` writes `!/usr/local/bin/gh auth git-credential` into `~/.gitconfig`; an editor keeps the path of its Python interpreter or of `git`; a launch agent or a crontab line starts a Homebrew command. Once the formula is uninstalled, each of them points to nothing, and nothing says so until it's used.
+
+Those places can't all be listed, so praetorian searches the likely ones, read-only, for the formula's paths: `<prefix>/opt/<formula>`, `<prefix>/Cellar/<formula>/`, and its commands as `<prefix>/bin/<command>` (or `sbin`), found through brew's own links.
+
+| Searched | Skipped |
+|---|---|
+| dotfiles in your home directory; `~/.config`, `~/.ssh`, `~/.gnupg`; `~/Library/Application Support`, `~/Library/Preferences`, `~/Library/LaunchAgents`; `/Library/LaunchAgents`, `/Library/LaunchDaemons`; your crontab | anything that isn't a configuration file under 1 MB (`json`, `ini`, `conf`, `plist`, `toml`, `yml`, `cfg`, `config`, `*rc`, dotfiles); cache, log, session, extension, history and backup folders; backup copies (`*.bak`, `*.orig`, `.zprofile.before-…`, and `.zprofile.macports-saved_…` made by the MacPorts installer); the folders macOS protects (`com.apple.*`, Contacts, call history); commented lines; `homebrew.mxcl.*` (step 3) |
+
+It takes well under a second to a few seconds, and it can't prove that nothing is left, so what it finds never blocks:
+
+- `--migration-report` adds `(settings name it: <files>)` to the formula's line; it stays in `--migrate-all`'s list;
+- `--migrate` warns with each file and line before the install, and lists them again after the uninstall with the MacPorts command of the same name (`/usr/local/bin/gh → /opt/local/bin/gh`); a batch repeats them in its summary;
+- `--doctor` reports the settings whose path is already gone. A dead `opt/` or `Cellar/` path was Homebrew's for sure; a dead `<prefix>/bin/<command>` only counts when MacPorts has that command (on Intel the prefix is `/usr/local`, where other installers put commands too): the others are only written to the log.
+
+praetorian never edits these files: a binary plist belongs to its app, change the path in the app's settings.
 
 #### Known traps
 
@@ -328,11 +349,11 @@ Some MacPorts ports have the formula's name but are another project, an obsolete
 
 #### Same project? Same homepage
 
-For a port with the formula's name, praetorian compares the Homebrew homepage (`brew info --json=v2`) with the MacPorts one (`port info --homepage`), ignoring the scheme, `www.`, a trailing `/`, `index.html` and case. Two code-host URLs (GitHub, GitLab…) count as the same project when they name the same organization **and** repository; a code-host URL and a site, when the organization is named like the site (`github.com/ansible/ansible` and `ansible.com`); on shared, multi-tenant sites (SourceForge, GNU, PyPI, `code.google.com`, Hackage, CRAN, RubyGems, CTAN, MetaCPAN, `*.github.io`…) the host and the project path have to be the same. Anything ambiguous gives no verdict (inconclusive, never "same project"): the same organization with another repository, two different subdomains of one site, a shared site with no project named. When the homepages differ, the report puts the formula in its own group and `--migrate` blocks, unless you name the port yourself with `=`: then it's only a warning. When one side has no homepage, there is no verdict either. `--migrate-all` only takes a formula whose homepages are judged the same; `--migrate` goes on after an inconclusive one (the commands are checked after the install).
+For a port with the formula's name, praetorian compares the Homebrew homepage (`brew info --json=v2`) with the MacPorts one (`port info --homepage`), ignoring the scheme, `www.`, a trailing `/`, `index.html` and case. Two code-host URLs (GitHub, GitLab…) count as the same project when they name the same organization **and** repository; a code-host URL and a site, when the organization is named like the site (`github.com/ansible/ansible` and `ansible.com`); on shared, multi-tenant sites (SourceForge, GNU, PyPI, `code.google.com`, Hackage, CRAN, RubyGems, CTAN, MetaCPAN, `*.github.io`…) the host and the project path have to be the same. Two forms are read as what they stand for: `<name>.github.com`, the old address of a GitHub Pages site, as `<name>.github.io` (GitHub's own sites, such as `gist.github.com`, aside); and on Read the Docs, the language and version in the path (`gi.readthedocs.io/en/latest/`) are ignored, since the subdomain names the project. A project that moved to another domain still looks different: on a terminal, the report and `--migrate` then ask you once whether they may ask the two sites where they forward to (one HEAD request each over `https`, 5 redirects at most, nothing downloaded; the report asks about 10 formulae at most). One that leads to the other is the same project: noted `(homepage moved: …)` in the report, not blocked by `--migrate`, and never taken by `--migrate-all`, which doesn't ask. Two homepages that both lead to a third page (a parked domain) prove nothing. The default answer is no; without a terminal, or on a dry run, nothing is asked and nothing is sent, unless you give `--allow-project-site-requests`. Anything ambiguous gives no verdict (inconclusive, never "same project"): the same organization with another repository, two different subdomains of one site, a shared site with no project named. When the homepages differ, the report puts the formula in its own group and `--migrate` blocks, unless you name the port yourself with `=`: then it's only a warning. When one side has no homepage, there is no verdict either. `--migrate-all` only takes a formula whose homepages are judged the same; `--migrate` goes on after an inconclusive one (the commands are checked after the install).
 
 #### A binary for this Mac?
 
-Before installing, praetorian asks `packages.macports.org` (one HEAD request per archive name, plus one for the port's directory when none matches; 10 s timeout, nothing downloaded) for the archive MacPorts would use: `<port>-<version>_<revision><default variants>.darwin_<major>.<arch>.tbz2` (`uname -r`, `uname -m`), or a noarch one. None means MacPorts would compile from source, which can take hours or fail (`nodejs26`, every `mysql` port on macOS 15 Intel): blocked unless `--allow-build`, with an older version of the same port that has a binary when there is one (`nodejs26` → `nodejs24`; 4 versions tried at most). No directory at all (no archive for any version or Mac, as for `git`): the block says so instead of suggesting to wait. A license MacPorts may not redistribute (`terraform-1.N`, which only repackages HashiCorp's binary): blocked unless `--allow-build`. No network or no `curl`: no verdict; the install is binary-only anyway, dependencies included. The report checks the ports it proposes (40 at most, 5 s each) and says how many it checked. These requests are `https` only and name the ports (and this Mac's Darwin version and architecture) to `packages.macports.org`, MacPorts' own server, which `port install` would contact anyway; nothing else leaves the Mac.
+Before installing, praetorian asks `packages.macports.org` (one HEAD request per archive name, plus one for the port's directory when none matches; 10 s timeout, nothing downloaded) for the archive MacPorts would use: `<port>-<version>_<revision><default variants>.darwin_<major>.<arch>.tbz2` (`uname -r`, `uname -m`), or a noarch one. None means MacPorts would compile from source, which can take hours or fail (`nodejs26`, every `mysql` port on macOS 15 Intel): blocked unless `--allow-build`, with an older version of the same port that has a binary when there is one (`nodejs26` → `nodejs24`; 4 versions tried at most). No directory at all (no archive for any version or Mac, as for `git`): the block says so instead of suggesting to wait. A license MacPorts may not redistribute (`terraform-1.N`, which only repackages HashiCorp's binary): blocked unless `--allow-build`. No network or no `curl`: no verdict; the install is binary-only anyway, dependencies included. The report checks the ports it proposes (40 at most, 5 s each) and says how many it checked. These requests are `https` only and name the ports (and this Mac's Darwin version and architecture) to `packages.macports.org`, MacPorts' own server, which `port install` would contact anyway. The only other requests are the ones you allow to the homepages of formulae whose homepages differ (see [above](#same-project-same-homepage)); nothing else leaves the Mac.
 
 #### How the commands are checked
 
@@ -389,9 +410,11 @@ praetorian never stops silently. Every block prints the same five parts, even wi
 | No Homebrew and no MacPorts | whole session (exit 1) | nothing to maintain |
 | Xcode installed but not ready | whole session (exit 1) | builds fail or hang forever |
 | Less than 5 GB free | whole session (exit 1) | a full disk mid-install leaves half-installed packages |
+| Less than 5 GB free before one of the formula upgrades | the formulae left and the casks; `brew autoremove` and `brew cleanup` still run | the source downloads and each build eat into the space checked at the start |
 | Unattended and still no network after 5 minutes (`github.com` doesn't answer) | whole session (exit 1), before the lock; with `--dry-run`, a warning | `brew update` fails and every download retries for nothing ([decision 23](#23-wait-for-the-network-before-starting)) |
 | Another praetorian session running | whole session (exit 1) | two brew/port runs on the same packages corrupt them. See [the session lock](#the-session-lock) for how a lock left by a crashed session is taken over |
 | `PRAETORIAN_HOME` not an absolute path, or containing a newline | whole session (exit 1), before anything is written | a relative path would follow the current directory |
+| `PRAETORIAN_HOME` not a directory, not writable or impossible to create, another user's, or writable by everyone | whole session (exit 1), before anything is written | the logs, the lock and the quarantine couldn't be written, or someone else could redirect them through a link |
 | MacPorts not responding / installed for another macOS | MacPorts part | ports may be broken until reinstalled |
 | `port` (or a directory above it) not owned by root or writable by others | MacPorts part, `--migrate` | it would run as root |
 | `port selfupdate` failed | MacPorts upgrade | half-synced ports tree |
@@ -447,7 +470,7 @@ An unattended session waited 5 minutes for `github.com` to answer, then stopped 
 
 ### "another praetorian session is already running"
 
-Check the PID it gives (`ps -p <pid> -o command=`). If it isn't praetorian (a PID reused after a crash), remove `.lock` in `PRAETORIAN_HOME` (`rm -rf ~/praetorian/.lock` with the default).
+Another session holds the lock: wait for it, or stop it (`kill <pid>`). A lock left by a session that died is taken over on its own, also when its PID was reused since by another program (praetorian reads that PID's command with `ps`). To check by hand: `ps -p <pid> -o command=`; if it isn't a praetorian session, remove `.lock` in `PRAETORIAN_HOME` (`rm -rf ~/praetorian/.lock` with the default).
 
 "couldn't take the session lock" means another session started at the same moment (or a lock with no PID yet is less than a minute old): wait a moment and run again.
 
@@ -483,7 +506,7 @@ Run `praetorian-schedule status`: it says whether the job is loaded, turned off 
 - The Mac was shut down at that time: the job only runs on a Mac that is on (asleep is fine). See [Scheduling](#scheduling-overnight-runs) to wake it up first.
 - "is on Battery Power (--ac-power-only)" in the log or the notification: the Mac wasn't plugged in.
 - "no network (github.com unreachable…)": see [above](#no-network-githubcom-unreachable-after-300-s).
-- Something printed before the session log existed (for example the `lib/` check) is in `PRAETORIAN_HOME/logs/launchd.stderr.log`; `status` shows its last lines.
+- Something printed before the session log existed (for example the `lib/` check) is in `PRAETORIAN_HOME/logs/launchd.stderr.log`; `status` shows its last lines. Past 1 MB, a session cuts it to its last 500 lines.
 - `install` failed with "Input/output error": run `praetorian-schedule uninstall`, then `install` again, from your own session at the Mac (not over SSH).
 
 ### Touch ID doesn't show up for sudo
@@ -512,7 +535,9 @@ Maintenance Homebrew (skipped if Homebrew is absent)
    3. show quarantine
    4. formulae: list outdated (minus quarantine)
         → brew fetch --deps   (download everything first)
-        → upgrade one by one   (auto-fix + one retry on known failures)
+        → upgrade one by one   (auto-fix + one retry on known failures;
+                                free space checked before each one: below
+                                5 GB, the rest and the casks are skipped)
    5. casks: repair interrupted upgrades, list outdated (minus quarantine)
         → upgrade one by one   (sudo deferred in unattended mode)
    6. brew autoremove
@@ -526,6 +551,7 @@ Maintenance MacPorts (skipped if MacPorts is absent)
       port and every directory above it owned by root, writable by root only? otherwise blocked
    2. sudo port selfupdate
    3. port outdated (minus quarantine) → sudo port -b upgrade <port>, for each port → port outdated again
+      ports with notes ("have notes") named, with the port notes command that shows them
    4. sudo port uninstall inactive   (only if any)
    5. report port echo leaves
    │
@@ -591,7 +617,7 @@ On exit, praetorian removes `.lock/` only if it still holds its own PID. A maint
 
 | Variable | Effect |
 |---|---|
-| `PRAETORIAN_HOME` | State directory: logs, quarantine, lock, `.toolchain`, `migrated.tsv` (default `~/praetorian`). Must be an absolute path without a newline, otherwise praetorian stops with exit code 1 before writing anything. Set it in the environment that starts praetorian (shell profile, `launchd` job). |
+| `PRAETORIAN_HOME` | State directory: logs, quarantine, lock, `.toolchain`, `migrated.tsv` (default `~/praetorian`). Must be an absolute path without a newline, to a directory of yours that isn't writable by everyone (or one praetorian can create), otherwise praetorian stops with exit code 1 before writing anything. Set it in the environment that starts praetorian (shell profile, `launchd` job). |
 | `PRAETORIAN_NOTIFY_AFTER` | From a terminal, the notification is sent only when the session took at least this many seconds (default `300`; `0` = always). Digits only: anything else is ignored (default used). Unattended sessions always notify; `--notify` / `--no-notify` override it. |
 | `HOMEBREW_DEVELOPER` | When set, praetorian leaves Homebrew on its development branch instead of switching back to stable ([decision 13](#13-stay-on-homebrews-stable-channel)). |
 | `PRAETORIAN_NETWORK_WAIT` | Unattended only: how many seconds to wait for `github.com` to answer before blocking (default `300`; `0` = check once). Digits only: anything else gives a warning and the default. From a terminal there is no wait. |
@@ -655,6 +681,8 @@ Before any formula upgrade, praetorian runs `brew fetch --formula --deps <all ou
 
 *Why:* a network glitch then fails in seconds, during the download, instead of after an hour of compiling when brew fetches a resource at the very end. It also lets the auto-fix above retry a download without rebuilding blindly.
 
+Those downloads, and every build's temporary files, use space the check before the session didn't count. So the free space is checked again before each formula: below the minimum (5 GB), praetorian stops upgrading formulae, skips the casks, still runs `brew autoremove` and `brew cleanup`, and blocks with the list of formulae left. Homebrew removes an upgraded formula's old version by itself (`brew cleanup <formula>` at the end of `brew upgrade`); with `HOMEBREW_NO_INSTALL_CLEANUP` set it doesn't, and praetorian runs that `brew cleanup <formula>` itself after each upgrade.
+
 ### 6. Keep build logs before cleanup
 
 This session's build logs are tarred into `logs/` **before** `brew cleanup --prune=all` runs.
@@ -669,17 +697,19 @@ The script re-executes itself under `caffeinate -i`.
 
 ### 8. Ctrl-C stops everything, cleanly
 
-brew runs in the background (see the next point), and `SIGINT`/`SIGTERM` are trapped: the trap kills the whole process tree of the current command, prints where the log is, and exits with code 130. An exit trap removes temp files and relinks any formula that was unlinked.
+brew runs in the background (see the next point), and `SIGINT`/`SIGTERM`/`SIGHUP` (the terminal closed) are trapped: the trap kills the whole process tree of the current command, prints where the log is, and exits with code 130. An exit trap removes temp files and relinks any formula that was unlinked.
 
 *Why:* in the first version, Ctrl-C killed only the current step; every following step then failed instantly with code 130, which made a clean run look like a cascade of failures. And with no job control, a background child ignores `SIGINT`, so it must be killed explicitly.
 
 ### 9. Live log and progress line
 
-Each brew or port command runs in the background and writes to a temp file. Every 2 seconds the new output is appended to the session log, and a single terminal line is redrawn with the elapsed time and the latest action (`==>` for Homebrew, `--->` for MacPorts):
+Each brew or port command runs in the background and writes to a temp file. Every 2 seconds (every 0.5 s during the first second, so a step that ends at once doesn't wait) the new output is appended to the session log, and a single terminal line is redrawn with the elapsed time and the latest action (`==>` for Homebrew, `--->` for MacPorts):
 
 ```
   12:34 Upgrading formula gstreamer — ==> meson compile …
 ```
+
+The line is cut to the terminal's width (`stty size`), so it stays on one screen line: a line that wrapped couldn't be redrawn in place, as `\r` only goes back to the start of the last screen line.
 
 The original stdin is saved on fd 3 and passed to the command, so sudo can still prompt. The progress line only appears once the command has printed something: until then, sudo may be waiting for a password in the same terminal.
 

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#
+# Fake crontab for the tests: "crontab -l" prints $CRONTAB_CONTENT, or
+# fails like a user without a crontab. Never reads the real one.
+#
+if [[ "${1:-}" == -l && -n "${CRONTAB_CONTENT:-}" ]]; then
+    printf '%s\n' "${CRONTAB_CONTENT}"
+    exit 0
+fi
+echo "crontab: no crontab for $(id -un 2>/dev/null || echo you)" >&2
+exit 1
