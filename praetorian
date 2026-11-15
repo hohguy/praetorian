@@ -569,6 +569,10 @@ main() {
         export SUDO_ASKPASS=/usr/bin/false
         # MacPorts: "sudo -n" fails right away instead of waiting.
         SUDO_CMD=(sudo -n)
+        # After a failed build, brew searches GitHub for known issues and
+        # looks for a token first, in the macOS keychain too: a keychain
+        # dialog would wait all night. The search is optional, skip it.
+        export HOMEBREW_NO_GITHUB_API=1
     fi
 
     check_prerequisites
