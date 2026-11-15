@@ -21,21 +21,22 @@ is opened.
 
 Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 `dropped`. The link is the live record; this file only points to it.
-Last checked against upstream: 2026-11-14 (latest release 1.5.2; 13 of
-our pull requests merged, issue #40 open).
+Last checked against upstream: 2026-11-15 (latest release 1.5.2; 13 of
+our pull requests merged; issue #40, issue #45 and PR #46 open).
 
 ### Open upstream
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
 | F2 | CI runs the tests one at a time; `--jobs` in CI (the bats container has GNU parallel, the macOS runner doesn't) | Issue (his decision) | posted: [#40](https://github.com/victor-sys-admin/praetorian/issues/40), no reply yet. His CI rework ([#41](https://github.com/victor-sys-admin/praetorian/pull/41), [#42](https://github.com/victor-sys-admin/praetorian/pull/42)) runs the jobs in parallel, not the tests. Mostly a gain for contributors waiting on CI. |
+| Y | Two tests assume a session under a minute and fail under load: "notify: unattended success" (gets "Done in 1 min") and "lock whose PID was reused by another program" (`sleep 60` ends first, `kill` fails) | Issue + PR | posted: [#45](https://github.com/victor-sys-admin/praetorian/issues/45), PR [#46](https://github.com/victor-sys-admin/praetorian/pull/46) (2026-11-14), CI green, no reply yet. Also a prerequisite for F2. |
 
 ### Next
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| Y | Two tests assume a session under a minute and fail under load: "notify: unattended success" (gets "Done in 1 min") and "lock whose PID was reused by another program" (`sleep 60` ends first, `kill` fails); failures recorded on 2026-11-11 | Issue + PR | planned: a test bug in its own right, also a prerequisite for F2 |
 | C | A port with no archive at all on packages.macports.org told apart from "none for this Mac yet" (both read "has no archive of … for <platform>" on `main`, checked 2026-11-14) | Issue, then PR | planned: doesn't depend on MacPorts #74668, so it can go before B |
+| I2 | The report doesn't check guessed port names (`node` → `nodejs22`) for `replaced_by`; `--migrate` does | PR (offered in PR #19) | planned: moved up; the offer in #19 probably went unnoticed, so we send it. Not rechecked on `main` yet. |
 | E | Xcode: a dry run skips the check instead of warning (`praetorian`: `[[ "${DRY_RUN}" == true ]] \|\| check_xcode_ready`), and the check stops at the first problem (checked on `main` 2026-11-14) | Issue, then PR if wanted | planned |
 | D | `--limit N` and `--exclude a,b` for batch migrations (not on `main`, checked 2026-11-14) | Issue, then PR if wanted | planned |
 
@@ -43,16 +44,41 @@ our pull requests merged, issue #40 open).
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| I2 | The report doesn't check guessed port names (`node` → `nodejs22`) for `replaced_by`; `--migrate` does | Offered in PR #19 | planned: merged without a reply to the offer; not rechecked on `main` |
-| B | `port -b` for migration installs and maintenance upgrades; `--allow-build` covers both; ports whose license allows no binary blocked | Issue, then PR | planned: waits for a MacPorts release with a fix for #74668 (below) |
+| B1 | Maintenance upgrade one port per `port` call, without `-p`: on `main` a single `port -N -p upgrade <list>` (lib/macports.sh, checked 2026-11-15) leaves a port uninstalled when its forced rebuild fails (#74668, no `-b` needed) | Issue, then PR | planned: waits for macports-base PR #425 to be merged or released (below) |
+| B2 | `port -b` for migration installs and maintenance upgrades; `--allow-build` covers both; ports whose license allows no binary blocked | Issue, then PR | planned: waits for the same, ideally a MacPorts release with the fix |
 
-B waits for [MacPorts #74668](https://trac.macports.org/ticket/74668)
+B1 and B2 wait for [MacPorts #74668](https://trac.macports.org/ticket/74668)
 (`port -b -p upgrade` on a forced rebuild compiles the port, then leaves
 it uninstalled). A fix is proposed in
 [macports-base PR #425](https://github.com/macports/macports-base/pull/425)
-(2026-11-13; CI green on macOS 15 and 26, no review yet). Until a
+(2026-11-13; CI green on macOS 15 and 26, no review yet as of 2026-11-15). Until a
 MacPorts release includes a fix, `extras` upgrades one port per `port`
 call inside one sudo, without `-p`.
+
+### Unattended sessions (to build on `extras` first)
+
+Found in a real session on 2026-11-14/15 (Intel Mac, where Homebrew
+builds every formula from source). `--unattended` only handles sudo.
+Three other things made the session wait with nobody to answer; the
+first two would stall an attended overnight session as well. Each is
+built and tested on `extras` before any issue upstream; every guard
+gets a test that makes it fire.
+
+| Item | Change | Kind | Status |
+|---|---|---|---|
+| R1 | After a failed build, Homebrew looks up a GitHub token to search for known issues, and asks the macOS keychain; the session waited on that prompt. Set `HOMEBREW_NO_GITHUB_API=1` for the session (at least unattended) | `extras`, then issue | planned: first check that it really skips the keychain lookup |
+| R2 | A step that stops making progress is never stopped: an `npm install` inside a formula build sat 7 hours on closed connections (`brew fetch --deps` doesn't fetch what a build downloads itself). A no-progress watchdog: no output and no CPU in the step's process tree for N minutes → stop the tree (escalating to SIGKILL: npm ignored SIGTERM), mark the step failed, quarantine, go on | `extras`, then issue | planned |
+| R3 | Free space is only checked between formulae (U), and the floor is 5 GB: one formula can build dozens of dependencies inside a single `brew upgrade`. Check during a step from the R2 loop; raise the floor (e.g. the larger of 20 GB and 5% of the disk) | `extras`, then issue | planned |
+| R4 | Optional: start no new formula after a set time, so the Mac is free in the morning | Suggestion | to decide |
+
+### Outside praetorian
+
+- Homebrew 7.0.13 (`utils/github/api.rb`): a failed GitHub token lookup
+  isn't cached (`@credentials ||=` keeps nothing for no token, and
+  `credentials_type` calls `keychain_username_password` directly), and
+  the keychain lookup has no timeout. When the keychain helper waits, every
+  GitHub call after a failed build waits again. To reproduce on its own
+  before any report (Intel macOS is Homebrew's Tier 3).
 
 ### Suggestions (features)
 
