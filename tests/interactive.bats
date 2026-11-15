@@ -152,6 +152,15 @@ feed_line() {
     grep -qx 'Done. To do from a terminal (sudo): cask bar' "${OSASCRIPT_CALLS}"
 }
 
+@test "interactive: HOMEBREW_NO_GITHUB_API left alone (brew may search known issues)" {
+    export BREW_OUTDATED_FORMULA=foo BREW_ENV_LOG="${BATS_TEST_TMPDIR}/brew_env"
+    run in_pty env -u HOMEBREW_NO_GITHUB_API "${PRAETORIAN}" </dev/null
+    [ "${status}" -eq 0 ]
+    grep -qx 'upgrade --formula foo' "${BREW_CALLS}"
+    run sort -u "${BREW_ENV_LOG}"
+    [ "${output}" = "HOMEBREW_NO_GITHUB_API=unset" ]
+}
+
 @test "interactive: brew errors are summarized, colors only on a terminal" {
     export BREW_OUTDATED_FORMULA=foo BREW_UPGRADE_RC=1 BREW_UPGRADE_OUTPUT='Error: foo: something broke'
     local raw="${BATS_TEST_TMPDIR}/pty_out"
