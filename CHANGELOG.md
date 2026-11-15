@@ -48,6 +48,10 @@ have none.
 
 ### Fixed
 
+- An unattended session could wait all night on a macOS keychain
+  dialog: after a failed build, brew's search for known issues looks
+  for a GitHub token in the keychain too. Unattended sessions now set
+  `HOMEBREW_NO_GITHUB_API`, which skips that search.
 - `ci/macos-tests --jobs N` ran no test: the script resets the PATH,
   and bats needs GNU parallel for `--jobs`. It now keeps `parallel`,
   and only that, in the PATH.
