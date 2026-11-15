@@ -282,6 +282,15 @@ EOF
     [ "${output}" = $'upgrade --formula foo\ncleanup foo\nupgrade --formula bar\ncleanup bar' ]
 }
 
+@test "unattended: brew gets HOMEBREW_NO_GITHUB_API=1 (no keychain lookup after a failed build)" {
+    export BREW_OUTDATED_FORMULA=foo BREW_ENV_LOG="${BATS_TEST_TMPDIR}/brew_env"
+    run env -u HOMEBREW_NO_GITHUB_API "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    grep -qx 'upgrade --formula foo' "${BREW_CALLS}"
+    run sort -u "${BREW_ENV_LOG}"
+    [ "${output}" = "HOMEBREW_NO_GITHUB_API=1" ]
+}
+
 # --- MacPorts ------------------------------------------------------------------
 
 @test "MacPorts: selfupdate then upgrade of the outdated ports, through sudo" {
