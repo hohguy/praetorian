@@ -36,6 +36,8 @@
 #   BREW_DOCTOR_OUTPUT    / BREW_DOCTOR_RC       brew doctor
 #   BREW_BUILD_LOG        non-empty: brew upgrade --formula <f> writes a
 #                         build log in ~/Library/Logs/Homebrew/<f>/
+#   BREW_ENV_LOG          file: each call appends the HOMEBREW_NO_GITHUB_API
+#                         it got ("unset" when absent)
 #   BREW_HANG_ON          subcommand ($1, e.g. update) that never ends:
 #                         the stub writes "<its PID> <its child's PID>" to
 #                         $BREW_CALLS.hang, then waits on a long sleep
@@ -46,6 +48,8 @@
 #
 set -u
 printf '%s\n' "$*" >>"${BREW_CALLS:?}"
+[[ -z "${BREW_ENV_LOG:-}" ]] ||
+    printf 'HOMEBREW_NO_GITHUB_API=%s\n' "${HOMEBREW_NO_GITHUB_API-unset}" >>"${BREW_ENV_LOG}"
 state="${BREW_CALLS}.state"
 
 say() { [[ -z "$1" ]] || printf '%s\n' "$1"; }
