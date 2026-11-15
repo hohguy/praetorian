@@ -58,7 +58,9 @@ notification_args() {
     grep -qx 'on run argv' "${OSASCRIPT_CALLS}"
     run notification_args
     [ "${lines[0]}" = "Maintenance completed successfully." ]
-    [[ "${lines[1]}" =~ ^Done\ in\ [0-9]+\ s$ ]] || false
+    # Any duration: a loaded Mac can take a minute (format_duration has
+    # its own test below).
+    [[ "${lines[1]}" =~ ^Done\ in\ [0-9]+\ (s|min|h\ [0-9]{2}\ min)$ ]] || false
     [ "${#lines[@]}" -eq 2 ]
 }
 

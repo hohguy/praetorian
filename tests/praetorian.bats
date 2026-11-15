@@ -138,7 +138,10 @@ with_macports() {
     # keeps the lock, the safe side.
     ps -ww -p $$ -o command= >/dev/null 2>&1 || skip "this ps can't show the command of a PID"
     mkdir -p "${HOME}/praetorian/.lock"
-    sleep 60 &
+    # Running for the whole session, however long it takes on a loaded
+    # Mac: a PID that ended would be "no longer running", the other case.
+    # kill then also checks it was still running.
+    sleep 3600 &
     local pid=$!
     echo "${pid}" >"${HOME}/praetorian/.lock/pid"
     run "${PRAETORIAN}"
