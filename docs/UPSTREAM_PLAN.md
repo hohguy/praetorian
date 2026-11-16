@@ -21,20 +21,24 @@ is opened.
 
 Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 `dropped`. The link is the live record; this file only points to it.
-Last checked against upstream: 2026-11-15 (latest release 1.5.2; 14 of
-our pull requests merged; issue #40 open).
+Last checked against upstream: 2026-11-16 (latest release 1.5.2; 14 of
+our pull requests merged; #40, #47 and #48 open).
+
+Pace: the maintainer hasn't looked at #47/#48 yet. At most two new items
+a day while that's so; ready branches wait, each cut from `main` on its
+own (nothing stacked), so a merge upstream costs a rebase at most.
 
 ### Open upstream
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
 | F2 | CI runs the tests one at a time; `--jobs` in CI (the bats container has GNU parallel, the macOS runner doesn't) | Issue (his decision) | posted: [#40](https://github.com/victor-sys-admin/praetorian/issues/40), no reply yet. His CI rework ([#41](https://github.com/victor-sys-admin/praetorian/pull/41), [#42](https://github.com/victor-sys-admin/praetorian/pull/42)) runs the jobs in parallel, not the tests. Mostly a gain for contributors waiting on CI. Its prerequisite, Y, is merged. |
+| Q | Any "An unsatisfied requirement failed this build" is quarantined as `xcode` (`lib/session.sh` on `main`, checked 2026-11-15): the summary says to install Xcode for a formula that needs an `arm64` Mac (`openjdk` 27 and what depends on it, on an Intel Mac), and on a Mac with Xcode the entry is lifted and the formula retried every session. Xcode only when Homebrew's Xcode line is there; anything else as `requirement`, 30 days | Issue + PR | posted: [#47](https://github.com/victor-sys-admin/praetorian/issues/47), [#48](https://github.com/victor-sys-admin/praetorian/pull/48) (2026-11-15). An independent review found the plural message ("Unsatisfied requirements…"), an Xcode this macOS can't run, and state carried from one failure to the next: fixed, pushed and both bodies updated 2026-11-16, CI green. On `extras` too |
 
 ### Next
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| Q | Any "An unsatisfied requirement failed this build" is quarantined as `xcode` (`lib/session.sh` on `main`, checked 2026-11-15): the summary says to install Xcode for a formula that needs an `arm64` Mac (`openjdk` 27 and what depends on it, on an Intel Mac), and on a Mac with Xcode the entry is lifted and the formula retried every session. Xcode only when Homebrew's Xcode line is there; anything else as `requirement`, 30 days | Issue + PR | on `extras` (2026-11-15, 378 tests pass); upstream next |
 | C | A port with no archive at all on packages.macports.org told apart from "none for this Mac yet" (both read "has no archive of … for <platform>" on `main`, checked 2026-11-14) | Issue, then PR | planned: doesn't depend on MacPorts #74668, so it can go before B. With it: a port with no binary yet isn't a failure and shouldn't suggest `port clean` or Trac (seen 2026-11-15: `gh`, `p5.34-json-xs`) |
 | I2 | The report doesn't check guessed port names (`node` → `nodejs22`) for `replaced_by`; `--migrate` does | PR (offered in PR #19) | planned: moved up; the offer in #19 probably went unnoticed, so we send it. Not rechecked on `main` yet. |
 | E | Xcode: a dry run skips the check instead of warning (`praetorian`: `[[ "${DRY_RUN}" == true ]] \|\| check_xcode_ready`), and the check stops at the first problem (checked on `main` 2026-11-14) | Issue, then PR if wanted | planned |
@@ -66,17 +70,51 @@ gets a test that makes it fire.
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| R1 | After a failed build, Homebrew looks up a GitHub token to search for known issues, and asks the macOS keychain; the session waited on that prompt. `--unattended` ("never waits for input") now sets `HOMEBREW_NO_GITHUB_API=1`; attended sessions are left alone | `extras`, then issue + PR | on `extras` (2026-11-15). Checked inside Homebrew 7.0.13: one issue search calls the keychain lookup twice without it, never with it |
+| R1 | After a failed build, Homebrew looks up a GitHub token to search for known issues, and asks the macOS keychain; the session waited on that prompt. `--unattended` ("never waits for input") now sets `HOMEBREW_NO_GITHUB_API=1`; attended sessions are left alone | `extras`, then issue + PR | on `extras` (2026-11-15). Checked inside Homebrew 7.0.13: one issue search calls the keychain lookup twice without it, never with it. Reviewed 2026-11-16: sound; README now says "GitHub API searches", not every GitHub lookup; not covered: `HOMEBREW_VERIFY_ATTESTATIONS` (opt-in) still asks for credentials. Branch `fix/unattended-no-github-api` ready, drafts written; post next |
 | R2 | A step that stops making progress is never stopped: an `npm install` inside a formula build sat 7 hours on closed connections (`brew fetch --deps` doesn't fetch what a build downloads itself). A no-progress watchdog: no output and no CPU in the step's process tree for N minutes → stop the tree (escalating to SIGKILL: npm ignored SIGTERM), mark the step failed, quarantine, go on | Not now | parked: too large a change for now. If it comes back: unattended only; watch the step's process tree (new processes, CPU), not its output (brew writes build output to its own logs); fail loudly when there is no tree to watch |
-| R3 | Free space is only checked between formulae (U), and the floor is 5 GB: one formula can build dozens of dependencies inside a single `brew upgrade`. Check during a step from the R2 loop; raise the floor (e.g. the larger of 20 GB and 5% of the disk) | Issue, offering a PR | planned: ask plainly whether to raise the 5 GB floor (10 GB, or more), and whether to check during a step; mention that B1 (one port per `port` call) already limits a single step on the MacPorts side |
+| R3 | Free space is only checked between formulae (U), and the floor is 5 GB: one formula can build dozens of dependencies inside a single `brew upgrade`. Check during a step from the R2 loop; raise the floor (e.g. the larger of 20 GB and 5% of the disk) | Issue, offering a PR | drafted 2026-11-16 (issue only, the feature form): the floor question first, checking during a step as a separate, bigger question; B1 not mentioned (not upstream yet). Post with R1 |
 | R4 | Optional: start no new formula after a set time, so the Mac is free in the morning | Suggestion | to decide |
 
-### Candidates (seen 2026-11-15, not checked on `main` yet)
+### Candidates (seen 2026-11-15)
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| QR | A formula that failed, then got built anyway as another formula's dependency later in the session (`llama.cpp`, via `whisper.cpp`), stays quarantined for 7 days and is reported as a failed build. Lift the entry when the formula is installed and current at the end of the session | Issue, then PR | to check on `main` |
-| PIN | praetorian has no handling of `brew pin`: if `brew outdated` still lists pinned formulae, they are tried, fail and get quarantined | Issue if confirmed | to check (with a throwaway formula, not the Mac's own) |
+| QR | A formula that failed, then got built anyway as another formula's dependency later in the session (`llama.cpp`, via `whisper.cpp`), stays quarantined for 7 days and is reported as a failed build. Lift the entry when the formula is installed and current at the end of the session | Issue, then PR | confirmed on `main` (nothing lifts a build entry but time or a toolchain change). Branch `fix/quarantine-built-later` built 2026-11-16: after the formula upgrades, one `brew outdated` (must answer), build entries of formulae installed and current lifted, and those held back only by such dependencies; 6 tests, each guard checked by breaking the code. Waits for the maintainer to catch up |
+| PIN | praetorian has no handling of `brew pin`: `brew outdated --quiet` lists pinned formulae, and `brew upgrade <pinned>` fails ("Not upgrading 1 pinned package"), so they are tried, fail and get quarantined | Issue, then PR | confirmed by reading (2026-11-15). After QR, which touches the same loop |
+| G1 | The homepage consent prompt says "2 requests at most" (`lib/migrate.sh`, our #35; the CHANGELOG says one HEAD request per site), but `curl -L --max-redirs 5` follows up to 5 redirects per site, maybe to other hosts: up to 12 requests. It's what the user agrees to | PR (small, wording) | found by the sweep 2026-11-16, checked on `main` |
+
+### Sweep of earlier work (2026-11-16)
+
+An independent read of the `extras`-only code and of our 14 merged pull
+requests together. On `main`: G1 above; one `[[ … ]]` assertion without
+`|| false` that can't fail (`tests/options.bats` ~368, the maintainer's
+line, not ours: mention it, don't fix it in our PRs). No cross-PR
+conflict, no field written and never read, CHANGELOG matches the code.
+
+On `extras`, before B1 goes upstream:
+
+- F1: the per-port loop runs under `sudo /bin/sh -c …`. On Ctrl-C,
+  `kill_tree` (as the user) can't signal the root `sh` or `port`; sudo
+  relays SIGTERM to the `sh`, which dies while the running `port upgrade`
+  carries on, after praetorian said "session stopped". Trap in the loop
+  script: kill the running port, then exit. (Whether sudo signals the
+  whole process group isn't checked.)
+- F2: each `port upgrade <p>` runs a full rev-upgrade scan; N ports, N
+  scans, and a rev-upgrade failure counts as the port's. Use
+  `--no-rev-upgrade` per port and one `port rev-upgrade` at the end.
+- F3: a missing binary for a *dependency* gives "upgrade failed" for the
+  requested port and no `--allow-build` hint (not checked against real
+  MacPorts output).
+- F4: a sudoers rule for `port` alone no longer covers `/bin/sh -c`; the
+  refusal isn't read as a sudo failure (becomes failure + quarantine).
+  Say so in the README's security section.
+- F5, F6: a second "Unreleased" below 1.5.1 in `extras`' CHANGELOG
+  (merge leftover, repeats a released fix); the README quotes a
+  quarantine label the code doesn't write.
+- F7: the loop's exit code isn't tested (the post-check hides it).
+- F9, for C: a port the build bots haven't built yet also has no
+  directory (404), and would get the "no archive for any version"
+  message. C's wording has to allow for a new port.
 
 ### Outside praetorian
 
