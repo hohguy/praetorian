@@ -237,16 +237,28 @@ collect_problems() {
     # 4. Structural causes → quarantine. A sudo refused for lack of
     #    authentication isn't one (deferred, see upgrade_cask).
     is_sudo_auth_failure "${out}" && return 0
+    # Before "An unsatisfied requirement failed this build", brew prints
+    # one "<formula>: <message>" line per requirement not met. Xcode only
+    # when its message is there ("Xcode.app 16.0" when a version is
+    # required): an architecture or anything else isn't fixed by
+    # installing Xcode.
     while IFS=$'\t' read -r name type cause detail; do
         [[ -n "${name}" ]] && quarantine_add "${name}" "${type}" "${cause}" "${detail}"
     done < <(awk '
-        /: A full installation of Xcode\.app is required/ {
-            split($0, a, ":"); culprit = a[1]; next
+        /^[^ :]+: A full installation of Xcode\.app/ {
+            split($0, a, ":"); xcode = a[1]; next
+        }
+        /^[^ :]+: The [^ ]+ architecture is required/ {
+            split($0, a, ":"); req_by = a[1]; req = $3 " architecture required"; next
         }
         /^Error: [^ :]+: An unsatisfied requirement failed this build/ {
             n = $2; sub(/:$/, "", n)
-            d = (culprit != "" && culprit != n) ? "full Xcode required (via " culprit ")" : "full Xcode required"
-            print n "\tformula\txcode\t" d
+            if (req != "") { c = "requirement"; d = req; by = req_by }
+            else if (xcode != "") { c = "xcode"; d = "full Xcode required"; by = xcode }
+            else { c = "requirement"; d = "a Homebrew requirement not met (see the log)"; by = "" }
+            if (by != "" && by != n) d = d " (via " by ")"
+            print n "\tformula\t" c "\t" d
+            xcode = req = req_by = ""
         }
         /^Error: [^ :]+: Failure while executing; .*installer -pkg/ {
             n = $2; sub(/:$/, "", n)
