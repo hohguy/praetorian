@@ -596,7 +596,7 @@ The code lives where you cloned it. The state lives in `PRAETORIAN_HOME` (`~/pra
 `quarantine.tsv` is tab-separated:
 
 ```
-name    type(formula|cask|port)    epoch    cause(xcode|pkg|build)    detail
+name    type(formula|cask|port)    epoch    cause(xcode|requirement|pkg|build)    detail
 ```
 
 You can edit or empty it by hand at any time (not while a session runs).
@@ -649,7 +649,8 @@ A package that fails for a cause that won't go away on its own is written to `qu
 
 | Cause | Detected from | Expires |
 |---|---|---|
-| `xcode`: needs full Xcode | `A full installation of Xcode.app is required` / `An unsatisfied requirement failed this build` | 30 days, or right away once Xcode is installed |
+| `xcode`: needs full Xcode | `An unsatisfied requirement failed this build`, after `A full installation of Xcode.app` | 30 days, or right away once Xcode is installed |
+| `requirement`: another requirement this Mac doesn't meet (e.g. an `arm64` formula on an Intel Mac, or an Xcode this macOS can't run) | `An unsatisfied requirement failed this build` (or `Unsatisfied requirements…`), unless the Xcode line is the only requirement | 30 days |
 | `pkg`: a cask's `.pkg` script fails | `Failure while executing; … installer -pkg` | 30 days |
 | `build`: compilation fails, even after auto-fixes | `Last 15 lines from ~/Library/Logs/Homebrew/<name>/…` | **7 days**, or right away when the toolchain changes |
 
