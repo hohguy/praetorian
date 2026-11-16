@@ -237,33 +237,40 @@ collect_problems() {
     # 4. Structural causes → quarantine. A sudo refused for lack of
     #    authentication isn't one (deferred, see upgrade_cask).
     is_sudo_auth_failure "${out}" && return 0
-    # Before "An unsatisfied requirement failed this build", brew prints
-    # one "<formula>: <message>" line per requirement not met. Xcode only
-    # when its message is there ("Xcode.app 16.0" when a version is
-    # required): an architecture or anything else isn't fixed by
-    # installing Xcode.
+    # Before "An unsatisfied requirement failed this build" ("Unsatisfied
+    # requirements…" when several), brew prints each requirement not met
+    # as "<dependent>: <message>", some on several lines. Xcode only when
+    # its message is there ("Xcode.app 16.0" when a version is required)
+    # and is all there is: an architecture, an Xcode this macOS can't
+    # run, or a requirement not recognized here isn't fixed by installing
+    # Xcode. Every "Error:" line ends what came before it.
     while IFS=$'\t' read -r name type cause detail; do
         [[ -n "${name}" ]] && quarantine_add "${name}" "${type}" "${cause}" "${detail}"
     done < <(awk '
         /^[^ :]+: A full installation of Xcode\.app/ {
             split($0, a, ":"); xcode = a[1]; next
         }
+        /^Xcode[ 0-9.]* cannot be installed on macOS/ && xcode != "" {
+            req_by = xcode; req = $0; sub(/\.$/, "", req); next
+        }
         /^[^ :]+: The [^ ]+ architecture is required/ {
             split($0, a, ":"); req_by = a[1]; req = $3 " architecture required"; next
         }
-        /^Error: [^ :]+: An unsatisfied requirement failed this build/ {
+        /^Error: [^ :]+: (An unsatisfied requirement|Unsatisfied requirements) failed this build/ {
             n = $2; sub(/:$/, "", n)
+            several = ($3 == "Unsatisfied")
             if (req != "") { c = "requirement"; d = req; by = req_by }
+            else if (xcode != "" && several) { c = "requirement"; d = "full Xcode and other requirements (see the log)"; by = xcode }
             else if (xcode != "") { c = "xcode"; d = "full Xcode required"; by = xcode }
             else { c = "requirement"; d = "a Homebrew requirement not met (see the log)"; by = "" }
             if (by != "" && by != n) d = d " (via " by ")"
             print n "\tformula\t" c "\t" d
-            xcode = req = req_by = ""
         }
         /^Error: [^ :]+: Failure while executing; .*installer -pkg/ {
             n = $2; sub(/:$/, "", n)
             print n "\tcask\tpkg\tcask pkg script failed"
         }
+        /^Error: / { xcode = req = req_by = "" }
     ' <<<"${out}")
 }
 
