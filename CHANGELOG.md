@@ -42,9 +42,9 @@ have none.
   `--migrate` can ask both project sites whether one forwards to the
   other (a project that moved): on a terminal, they ask you once first
   (the default is no); `--allow-project-site-requests` answers yes in
-  advance. One HEAD request per site, over https, nothing downloaded. A homepage that
-  forwards to the other is the same project, never taken by
-  `--migrate-all`.
+  advance. One HEAD request per site, over https, following up to 5
+  redirects, nothing downloaded. A homepage that forwards to the other
+  is the same project, never taken by `--migrate-all`.
 
 ### Fixed
 
