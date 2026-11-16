@@ -21,21 +21,21 @@ is opened.
 
 Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 `dropped`. The link is the live record; this file only points to it.
-Last checked against upstream: 2026-11-15 (latest release 1.5.2; 13 of
-our pull requests merged; issue #40, issue #45 and PR #46 open).
+Last checked against upstream: 2026-11-15 (latest release 1.5.2; 14 of
+our pull requests merged; issue #40 open).
 
 ### Open upstream
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| F2 | CI runs the tests one at a time; `--jobs` in CI (the bats container has GNU parallel, the macOS runner doesn't) | Issue (his decision) | posted: [#40](https://github.com/victor-sys-admin/praetorian/issues/40), no reply yet. His CI rework ([#41](https://github.com/victor-sys-admin/praetorian/pull/41), [#42](https://github.com/victor-sys-admin/praetorian/pull/42)) runs the jobs in parallel, not the tests. Mostly a gain for contributors waiting on CI. |
-| Y | Two tests assume a session under a minute and fail under load: "notify: unattended success" (gets "Done in 1 min") and "lock whose PID was reused by another program" (`sleep 60` ends first, `kill` fails) | Issue + PR | posted: [#45](https://github.com/victor-sys-admin/praetorian/issues/45), PR [#46](https://github.com/victor-sys-admin/praetorian/pull/46) (2026-11-14), CI green, no reply yet. Also a prerequisite for F2. |
+| F2 | CI runs the tests one at a time; `--jobs` in CI (the bats container has GNU parallel, the macOS runner doesn't) | Issue (his decision) | posted: [#40](https://github.com/victor-sys-admin/praetorian/issues/40), no reply yet. His CI rework ([#41](https://github.com/victor-sys-admin/praetorian/pull/41), [#42](https://github.com/victor-sys-admin/praetorian/pull/42)) runs the jobs in parallel, not the tests. Mostly a gain for contributors waiting on CI. Its prerequisite, Y, is merged. |
 
 ### Next
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| C | A port with no archive at all on packages.macports.org told apart from "none for this Mac yet" (both read "has no archive of … for <platform>" on `main`, checked 2026-11-14) | Issue, then PR | planned: doesn't depend on MacPorts #74668, so it can go before B |
+| Q | Any "An unsatisfied requirement failed this build" is quarantined as `xcode` (`lib/session.sh` on `main`, checked 2026-11-15): the summary says to install Xcode for a formula that needs an `arm64` Mac (`openjdk` 27 and what depends on it, on an Intel Mac), and on a Mac with Xcode the entry is lifted and the formula retried every session. Xcode only when Homebrew's Xcode line is there; anything else as `requirement`, 30 days | Issue + PR | on `extras` (2026-11-15, 378 tests pass); upstream next |
+| C | A port with no archive at all on packages.macports.org told apart from "none for this Mac yet" (both read "has no archive of … for <platform>" on `main`, checked 2026-11-14) | Issue, then PR | planned: doesn't depend on MacPorts #74668, so it can go before B. With it: a port with no binary yet isn't a failure and shouldn't suggest `port clean` or Trac (seen 2026-11-15: `gh`, `p5.34-json-xs`) |
 | I2 | The report doesn't check guessed port names (`node` → `nodejs22`) for `replaced_by`; `--migrate` does | PR (offered in PR #19) | planned: moved up; the offer in #19 probably went unnoticed, so we send it. Not rechecked on `main` yet. |
 | E | Xcode: a dry run skips the check instead of warning (`praetorian`: `[[ "${DRY_RUN}" == true ]] \|\| check_xcode_ready`), and the check stops at the first problem (checked on `main` 2026-11-14) | Issue, then PR if wanted | planned |
 | D | `--limit N` and `--exclude a,b` for batch migrations (not on `main`, checked 2026-11-14) | Issue, then PR if wanted | planned |
@@ -66,10 +66,17 @@ gets a test that makes it fire.
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| R1 | After a failed build, Homebrew looks up a GitHub token to search for known issues, and asks the macOS keychain; the session waited on that prompt. Set `HOMEBREW_NO_GITHUB_API=1` for the session (at least unattended) | `extras`, then issue | planned: first check that it really skips the keychain lookup |
-| R2 | A step that stops making progress is never stopped: an `npm install` inside a formula build sat 7 hours on closed connections (`brew fetch --deps` doesn't fetch what a build downloads itself). A no-progress watchdog: no output and no CPU in the step's process tree for N minutes → stop the tree (escalating to SIGKILL: npm ignored SIGTERM), mark the step failed, quarantine, go on | `extras`, then issue | planned |
-| R3 | Free space is only checked between formulae (U), and the floor is 5 GB: one formula can build dozens of dependencies inside a single `brew upgrade`. Check during a step from the R2 loop; raise the floor (e.g. the larger of 20 GB and 5% of the disk) | `extras`, then issue | planned |
+| R1 | After a failed build, Homebrew looks up a GitHub token to search for known issues, and asks the macOS keychain; the session waited on that prompt. `--unattended` ("never waits for input") now sets `HOMEBREW_NO_GITHUB_API=1`; attended sessions are left alone | `extras`, then issue + PR | on `extras` (2026-11-15). Checked inside Homebrew 7.0.13: one issue search calls the keychain lookup twice without it, never with it |
+| R2 | A step that stops making progress is never stopped: an `npm install` inside a formula build sat 7 hours on closed connections (`brew fetch --deps` doesn't fetch what a build downloads itself). A no-progress watchdog: no output and no CPU in the step's process tree for N minutes → stop the tree (escalating to SIGKILL: npm ignored SIGTERM), mark the step failed, quarantine, go on | Not now | parked: too large a change for now. If it comes back: unattended only; watch the step's process tree (new processes, CPU), not its output (brew writes build output to its own logs); fail loudly when there is no tree to watch |
+| R3 | Free space is only checked between formulae (U), and the floor is 5 GB: one formula can build dozens of dependencies inside a single `brew upgrade`. Check during a step from the R2 loop; raise the floor (e.g. the larger of 20 GB and 5% of the disk) | Issue, offering a PR | planned: ask plainly whether to raise the 5 GB floor (10 GB, or more), and whether to check during a step; mention that B1 (one port per `port` call) already limits a single step on the MacPorts side |
 | R4 | Optional: start no new formula after a set time, so the Mac is free in the morning | Suggestion | to decide |
+
+### Candidates (seen 2026-11-15, not checked on `main` yet)
+
+| Item | Change | Kind | Status |
+|---|---|---|---|
+| QR | A formula that failed, then got built anyway as another formula's dependency later in the session (`llama.cpp`, via `whisper.cpp`), stays quarantined for 7 days and is reported as a failed build. Lift the entry when the formula is installed and current at the end of the session | Issue, then PR | to check on `main` |
+| PIN | praetorian has no handling of `brew pin`: if `brew outdated` still lists pinned formulae, they are tried, fail and get quarantined | Issue if confirmed | to check (with a throwaway formula, not the Mac's own) |
 
 ### Outside praetorian
 
@@ -78,7 +85,12 @@ gets a test that makes it fire.
   `credentials_type` calls `keychain_username_password` directly), and
   the keychain lookup has no timeout. When the keychain helper waits, every
   GitHub call after a failed build waits again. To reproduce on its own
-  before any report (Intel macOS is Homebrew's Tier 3).
+  before any report (Intel macOS is Homebrew's Tier 3). Harder on the
+  development Mac now: the keychain item was set to "Always Allow" on
+  2026-11-15.
+- Not a bug: `openjdk` 27 declares `depends_on arch: :arm64` on macOS
+  (its only macOS boot JDK is `aarch64`), so Homebrew no longer builds
+  Java on Intel Macs. What Q fixes is praetorian's advice about it.
 
 ### Suggestions (features)
 
@@ -112,6 +124,7 @@ merged, some may move up.
 | P1 | MacPorts' "ports you installed have notes" only reached the log | merged: [#36](https://github.com/victor-sys-admin/praetorian/issues/36), PR [#37](https://github.com/victor-sys-admin/praetorian/pull/37) (2026-11-14) |
 | Z | Every step lasted at least 2 seconds | merged: [#38](https://github.com/victor-sys-admin/praetorian/issues/38), PR [#39](https://github.com/victor-sys-admin/praetorian/pull/39) (2026-11-14) |
 | P2 | A progress line wider than the terminal left lines behind | merged: [#43](https://github.com/victor-sys-admin/praetorian/issues/43), PR [#44](https://github.com/victor-sys-admin/praetorian/pull/44) (2026-11-14) |
+| Y | Two tests assumed a session under a minute and failed under load | merged: [#45](https://github.com/victor-sys-admin/praetorian/issues/45), PR [#46](https://github.com/victor-sys-admin/praetorian/pull/46) (2026-11-15) |
 | J | coreutils `g`-prefixed names | dropped: Homebrew uses the same names; a `gnubin` PATH line is already blocked |
 | L | Test-suite run time | folded into F |
 
