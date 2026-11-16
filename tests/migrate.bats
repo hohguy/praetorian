@@ -670,7 +670,7 @@ report_answering() {
     homepages_moved_setup
     run report_answering y
     [[ "${output}" == *"2 formula(e) have a MacPorts port with the same name but another homepage:"* ]] || false
-    [[ "${output}" == *"only those sites are contacted"* ]] || false
+    [[ "${output}" == *"following up to 5 redirects wherever they lead"* ]] || false
     [ "$(grep -c '\[y/N\]' <<<"${output}")" -eq 1 ]
     [[ "${output}" == *"- foo (homepage moved: "* ]] || false
     [ -s "${CURL_HOMEPAGE_URLS}" ]
