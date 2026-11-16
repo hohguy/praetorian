@@ -51,9 +51,12 @@ have none.
 - Any formula failing on "An unsatisfied requirement failed this build"
   was taken for one that needs full Xcode, so the summary said to install
   Xcode for a formula that needs an `arm64` Mac, and on a Mac with Xcode
-  it was retried every session. Only Homebrew's Xcode message gives that
-  advice now; other requirements are quarantined for 30 days as
-  `requirement`.
+  it was retried every session. The Xcode advice now needs Homebrew's
+  Xcode message as the only requirement, with an Xcode this macOS can
+  run; the other cases are quarantined for 30 days as `requirement`. A
+  formula with several requirements not met ("Unsatisfied requirements
+  failed this build") is quarantined too, instead of retried every
+  session.
 - An unattended session could wait all night on a macOS keychain
   dialog: after a failed build, brew's search for known issues looks
   for a GitHub token in the keychain too. Unattended sessions now set
