@@ -791,8 +791,8 @@ plan_resolve_differ() {
         "? ${n} formula(e) have a MacPorts port with the same name but another homepage${more}:" \
         "${lines[@]}" \
         "  When a project moves, its old address usually forwards to the new one." \
-        "  praetorian can ask the projects' sites where they forward to: at most 2" \
-        "  requests per formula, nothing downloaded, and only those sites are contacted." \
+        "  praetorian can ask the projects' sites where they forward to: one request to" \
+        "  each, following up to 5 redirects wherever they lead, nothing downloaded." \
         "  If you say no, these formulae stay under \"maybe a different project\"."; then
         ask=true
     fi
@@ -1176,8 +1176,9 @@ migrate_check_project() {
             elif homepage_consent "Ask both project sites?" \
                 "? ${f}: Homebrew's homepage (${brew_hp}) isn't MacPorts' (${port_hp})." \
                 "  If the project moved, one address forwards to the other. praetorian can" \
-                "  ask both project sites (2 requests at most, nothing downloaded). If you say" \
-                "  no, the migration is blocked as a possibly different project." &&
+                "  ask both project sites (one request each, following up to 5 redirects," \
+                "  nothing downloaded). If you say no, the migration is blocked as a possibly" \
+                "  different project." &&
                 homepage_moved "${brew_hp}" "${port_hp}"; then
                 ok "Same project: ${f} and ${p}: one homepage forwards to the other (${brew_hp}, ${port_hp})"
                 return 0
