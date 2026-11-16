@@ -48,6 +48,10 @@ have none.
 
 ### Fixed
 
+- An unattended session could wait all night on a macOS keychain
+  dialog: after a failed build, brew's search for known issues looks
+  for a GitHub token in the keychain too. Unattended sessions now set
+  `HOMEBREW_NO_GITHUB_API`, which skips that search.
 - Any formula failing on "An unsatisfied requirement failed this build"
   was taken for one that needs full Xcode, so the summary said to install
   Xcode for a formula that needs an `arm64` Mac, and on a Mac with Xcode
