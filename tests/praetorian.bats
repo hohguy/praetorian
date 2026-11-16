@@ -76,6 +76,76 @@ with_macports() {
     [ "${output}" = $'foo\tformula\txcode' ]
 }
 
+@test "full Xcode of a given version required: still quarantined as xcode" {
+    export BREW_OUTDATED_FORMULA=foo BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT=$'foo: A full installation of Xcode.app 16.0 is required to compile\nthis software. Installing just the Command Line Tools is not sufficient.\nError: foo: An unsatisfied requirement failed this build.'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    run cut -f1,2,4,5 "${QUARANTINE}"
+    [ "${output}" = $'foo\tformula\txcode\tfull Xcode required' ]
+}
+
+@test "architecture required by a dependency: quarantined as requirement, no Xcode advice" {
+    export BREW_OUTDATED_FORMULA=foo BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT=$'bar: The arm64 architecture is required for this software.\nError: foo: An unsatisfied requirement failed this build.'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"foo: Homebrew can't build them on this Mac"* ]] || false
+    [[ "${output}" != *"install Xcode"* ]] || false
+    run cut -f1,2,4,5 "${QUARANTINE}"
+    [ "${output}" = $'foo\tformula\trequirement\tarm64 architecture required (via bar)' ]
+}
+
+@test "unknown unmet requirement: quarantined as requirement, not xcode" {
+    export BREW_OUTDATED_FORMULA=foo BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT=$'foo: Something else is required for this software.\nError: foo: An unsatisfied requirement failed this build.'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" != *"install Xcode"* ]] || false
+    run cut -f1,2,4,5 "${QUARANTINE}"
+    [ "${output}" = $'foo\tformula\trequirement\ta Homebrew requirement not met (see the log)' ]
+}
+
+@test "Xcode this macOS can't run: quarantined as requirement, no Xcode advice" {
+    export BREW_OUTDATED_FORMULA=foo BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT=$'foo: A full installation of Xcode.app 16.0 is required to compile\nthis software. Installing just the Command Line Tools is not sufficient.\n\nXcode 16.0 cannot be installed on macOS 14.7.\nYou must upgrade your version of macOS.\nError: foo: An unsatisfied requirement failed this build.'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" != *"install Xcode"* ]] || false
+    run cut -f1,2,4,5 "${QUARANTINE}"
+    [ "${output}" = $'foo\tformula\trequirement\tXcode 16.0 cannot be installed on macOS 14.7' ]
+}
+
+@test "several requirements, Xcode among them: quarantined as requirement" {
+    export BREW_OUTDATED_FORMULA=foo BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT=$'foo: A full installation of Xcode.app is required to compile\nthis software. Installing just the Command Line Tools is not sufficient.\nfoo: Something else is required for this software.\nError: foo: Unsatisfied requirements failed this build.'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" != *"install Xcode"* ]] || false
+    run cut -f1,2,4,5 "${QUARANTINE}"
+    [ "${output}" = $'foo\tformula\trequirement\tfull Xcode and other requirements (see the log)' ]
+}
+
+@test "requirement lines before another error don't carry over to the next failure" {
+    export BREW_OUTDATED_FORMULA=foo BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT=$'bar: A full installation of Xcode.app is required to compile\nthis software. Installing just the Command Line Tools is not sufficient.\nError: bar: Something else broke.\nfoo: Something else is required for this software.\nError: foo: An unsatisfied requirement failed this build.'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    run cut -f1,2,4,5 "${QUARANTINE}"
+    [ "${output}" = $'foo\tformula\trequirement\ta Homebrew requirement not met (see the log)' ]
+}
+
+@test "requirement entry: kept on a Mac with Xcode, unlike an xcode entry" {
+    mkdir -p "${HOME}/praetorian"
+    export XCODE_SELECT_PATH=/Applications/Xcode.app/Contents/Developer
+    printf 'foo\tformula\t%s\trequirement\tarm64 architecture required\nbar\tformula\t%s\txcode\tfull Xcode required\n' \
+        "$(date +%s)" "$(date +%s)" >"${QUARANTINE}"
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    run cut -f1,4 "${QUARANTINE}"
+    [ "${output}" = $'foo\trequirement' ]
+}
+
 @test "quarantined formula: skipped by the next session" {
     mkdir -p "${HOME}/praetorian"
     # "build", not "xcode": an xcode entry is lifted on a Mac with Xcode.
@@ -280,6 +350,15 @@ EOF
     [ "${status}" -eq 0 ]
     run grep -E '^(upgrade --formula|cleanup) (foo|bar)$' "${BREW_CALLS}"
     [ "${output}" = $'upgrade --formula foo\ncleanup foo\nupgrade --formula bar\ncleanup bar' ]
+}
+
+@test "unattended: brew gets HOMEBREW_NO_GITHUB_API=1 (no keychain lookup after a failed build)" {
+    export BREW_OUTDATED_FORMULA=foo BREW_ENV_LOG="${BATS_TEST_TMPDIR}/brew_env"
+    run env -u HOMEBREW_NO_GITHUB_API "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    grep -qx 'upgrade --formula foo' "${BREW_CALLS}"
+    run sort -u "${BREW_ENV_LOG}"
+    [ "${output}" = "HOMEBREW_NO_GITHUB_API=1" ]
 }
 
 # --- MacPorts ------------------------------------------------------------------

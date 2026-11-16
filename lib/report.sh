@@ -119,17 +119,22 @@ quarantine_list() {
 
 remediation_hints() {
     [[ -s "${QUARANTINE_FILE}" ]] || return 0
-    local xcode_pkgs pkg_casks build_pkgs port_pkgs
+    local xcode_pkgs req_pkgs pkg_casks build_pkgs port_pkgs
     xcode_pkgs=$(quarantine_list xcode "")
+    req_pkgs=$(quarantine_list requirement "")
     pkg_casks=$(quarantine_list pkg "")
     build_pkgs=$(quarantine_list build formula)
     port_pkgs=$(quarantine_list "" port)
-    [[ -n "${xcode_pkgs}${pkg_casks}${build_pkgs}${port_pkgs}" ]] || return 0
+    [[ -n "${xcode_pkgs}${req_pkgs}${pkg_casks}${build_pkgs}${port_pkgs}" ]] || return 0
 
     info "To unblock:"
     if [[ -n "${xcode_pkgs}" ]]; then
         say "    ${C_DIM}-${C_RESET} ${xcode_pkgs}: install Xcode (App Store), then"
         say "      ${C_DIM}sudo xcode-select -s /Applications/Xcode.app${C_RESET} — or uninstall them if you no longer use them."
+    fi
+    if [[ -n "${req_pkgs}" ]]; then
+        say "    ${C_DIM}-${C_RESET} ${req_pkgs}: Homebrew can't build them on this Mac (a requirement isn't met, see the log);"
+        say "      the installed version still works. Uninstall them, or get them another way."
     fi
     if [[ -n "${pkg_casks}" ]]; then
         say "    ${C_DIM}-${C_RESET} ${pkg_casks}: run ${C_DIM}brew upgrade --cask <name>${C_RESET} by hand to see the error,"

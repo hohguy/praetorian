@@ -70,7 +70,7 @@ readonly LOG_MIN_AGE_DAYS=7        # …but none younger than this is removed
 readonly UNUSED_THRESHOLD_DAYS=180 # 6 months
 readonly APP_DIR="/Applications"
 # Quarantine: one package per line, tab-separated fields:
-#   name  type(formula|cask|port)  epoch  cause(xcode|pkg|build)  detail
+#   name  type(formula|cask|port)  epoch  cause(xcode|requirement|pkg|build)  detail
 readonly QUARANTINE_FILE="${PRAETORIAN_HOME}/quarantine.tsv"
 readonly QUARANTINE_DAYS=30
 # Build failures: often fixed by a new formula revision, so retried sooner.
@@ -516,6 +516,10 @@ main() {
         export SUDO_ASKPASS=/usr/bin/false
         # MacPorts: "sudo -n" fails right away instead of waiting.
         SUDO_CMD=(sudo -n)
+        # After a failed build, brew searches GitHub for known issues and
+        # looks for a token first, in the macOS keychain too: a keychain
+        # dialog would wait all night. The search is optional, skip it.
+        export HOMEBREW_NO_GITHUB_API=1
     fi
 
     check_prerequisites
