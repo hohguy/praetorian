@@ -48,6 +48,12 @@ have none.
 
 ### Fixed
 
+- Any formula failing on "An unsatisfied requirement failed this build"
+  was taken for one that needs full Xcode, so the summary said to install
+  Xcode for a formula that needs an `arm64` Mac, and on a Mac with Xcode
+  it was retried every session. Only Homebrew's Xcode message gives that
+  advice now; other requirements are quarantined for 30 days as
+  `requirement`.
 - `ci/macos-tests --jobs N` ran no test: the script resets the PATH,
   and bats needs GNU parallel for `--jobs`. It now keeps `parallel`,
   and only that, in the PATH.
