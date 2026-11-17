@@ -313,7 +313,7 @@ EOF
 }
 
 @test "disk runs low between two formulae: loop stopped, the rest listed, casks skipped, cleanup still run" {
-    # 100 GB at the start and before foo, then 1 GB before bar (minimum 5).
+    # 100 GB at the start and before foo, then 1 GB before bar (minimum 10).
     with_fake_df 104857600 104857600 1048576
     export BREW_OUTDATED_FORMULA=$'foo\nbar\nbaz' BREW_OUTDATED_CASK=app
     run "${PRAETORIAN}"
@@ -324,7 +324,7 @@ EOF
     grep -qx 'autoremove' "${BREW_CALLS}"
     grep -qx 'cleanup --prune=all' "${BREW_CALLS}"
     run cat "${LOGS}"/praetorian_*.log
-    [[ "${output}" == *"BLOCKED: disk space ran low during the formula upgrades (1 GB free, minimum 5 GB)"* ]] || false
+    [[ "${output}" == *"BLOCKED: disk space ran low during the formula upgrades (1 GB free, minimum 10 GB)"* ]] || false
     [[ "${output}" == *"Not upgraded: bar baz. The casks were skipped too."* ]] || false
     [[ "${output}" == *"Apps (casks) skipped: not enough disk space"* ]] || false
 }
@@ -335,6 +335,23 @@ EOF
     run "${PRAETORIAN}" --dry-run
     [ "${status}" -eq 0 ]
     [[ "${output}" != *"disk space ran low"* ]] || false
+}
+
+@test "default minimum 10 GB: 9 GB free blocks the session before any command" {
+    with_fake_df 9437184
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"BLOCKED: not enough disk space (9 GB free, minimum 10 GB)"* ]] || false
+    [ ! -s "${BREW_CALLS}" ]
+}
+
+@test "default minimum 10 GB: 10 GB free runs, with the 20 GB warning" {
+    with_fake_df 10485760
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"not enough disk space"* ]] || false
+    [[ "${output}" == *"Only 10 GB free: a big build could fill the disk."* ]] || false
+    [ -s "${BREW_CALLS}" ]
 }
 
 @test "HOMEBREW_NO_INSTALL_CLEANUP: brew cleanup <formula> after each upgrade; without it, left to brew" {
