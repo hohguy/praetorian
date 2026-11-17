@@ -175,7 +175,7 @@ The disk needs at least 5 GB free (20 GB recommended); below that, praetorian st
 | shfmt 3.14.1 | Formatting (blocking; `ci/check fix-format` fixes it) |
 | Gitleaks 8.30.1 | Secrets (blocking). Scans the working tree, archives included (`--max-archive-depth 2`): with the default `PRAETORIAN_HOME`, that covers your local `logs/` and their `.tar.gz` build logs. A `PRAETORIAN_HOME` outside the repository isn't scanned |
 | actionlint 1.7.12, zizmor 1.31.0 | GitHub workflows (blocking) |
-| bats 1.14.0 | Tests, with the fakes from `tests/stubs/` (blocking) |
+| bats 1.14.0 | Tests, with the fakes from `tests/stubs/`, 4 at a time (blocking) |
 
 The same tests also run **on macOS under `/bin/bash` 3.2** with `ci/macos-tests`: it fetches bats-core 1.14.0 by commit into a temp directory (needs `git`, nothing is installed), puts `/bin` first in the `PATH`, unsets the `PRAETORIAN_*` variables of your shell, and uses the macOS tools. GitHub Actions runs `ci/check` (Linux) and `ci/macos-tests` (`macos-latest`) on pull requests and on `main`; a push to a branch without a pull request runs nothing.
 

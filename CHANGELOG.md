@@ -125,6 +125,8 @@ have none.
 
 ### Changed
 
+- `ci/check` runs the tests 4 at a time (`bats --jobs 4`; GNU parallel
+  is in the bats container), in CI too.
 - CI: the two jobs stop after 60 minutes instead of GitHub's 6 hours,
   and Dependabot proposes updates of the actions pinned by commit.
 - Each step waited at least 2 seconds, the interval at which its output
