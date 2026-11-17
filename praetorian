@@ -93,7 +93,7 @@ readonly LOCK_DIR="${PRAETORIAN_HOME}/.lock"
 # Free disk space (GB): blocking below MIN_FREE_GB (a build that fills the
 # disk leaves half-installed packages), warning below WARN_FREE_GB.
 # PRAETORIAN_MIN_FREE_GB: tests.
-readonly MIN_FREE_GB="${PRAETORIAN_MIN_FREE_GB:-5}"
+readonly MIN_FREE_GB="${PRAETORIAN_MIN_FREE_GB:-10}"
 readonly WARN_FREE_GB=20
 # Unattended: how long to wait for the network before blocking (seconds).
 # PRAETORIAN_NETWORK_WAIT: checked by check_network.
