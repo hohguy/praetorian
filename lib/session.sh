@@ -461,7 +461,7 @@ check_prerequisites() {
 # several GB of temporary space. Checked before anything runs
 # (check_disk_space), then again before each formula's upgrade
 # (disk_space_ok): the source downloads and each build eat into it.
-DISK_MIN_GB=5   # minimum, read from MIN_FREE_GB by check_disk_space
+DISK_MIN_GB=10  # minimum, read from MIN_FREE_GB by check_disk_space
 DISK_FREE_GB="" # free space at the last check, GB
 
 # free_space_gb: free space on the volume of HOME (where Homebrew,
@@ -482,8 +482,8 @@ check_disk_space() {
     if [[ "${min}" =~ ^[0-9]+$ ]]; then
         min=$((10#${min}))
     else
-        warn "PRAETORIAN_MIN_FREE_GB is not a whole number of GB: default 5 GB used."
-        min=5
+        warn "PRAETORIAN_MIN_FREE_GB is not a whole number of GB: default 10 GB used."
+        min=10
     fi
     DISK_MIN_GB=${min}
     gb=$(free_space_gb)
