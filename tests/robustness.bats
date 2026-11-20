@@ -102,7 +102,7 @@ EOF
     export PRAETORIAN_MIN_FREE_GB="PATH[\$(touch ${BATS_TEST_TMPDIR}/pwned)]"
     run "${PRAETORIAN}" --dry-run
     [ ! -e "${BATS_TEST_TMPDIR}/pwned" ]
-    [[ "${output}" == *"PRAETORIAN_MIN_FREE_GB is not a whole number"* ]] || false
+    [[ "${output}" == *"PRAETORIAN_MIN_FREE_GB is not a whole number of GB: default 10 GB used."* ]] || false
     [ "${status}" -eq 0 ]
 }
 

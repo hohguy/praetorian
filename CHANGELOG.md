@@ -31,7 +31,7 @@ have none.
   (`.zprofile.macports-saved_…`) are skipped.
 - Free disk space is checked again before each formula upgrade, not
   only before the session: the source downloads and every build eat into
-  it. Below the minimum (5 GB), the formulae left and the casks are
+  it. Below the minimum (10 GB), the formulae left and the casks are
   skipped, `brew autoremove` and `brew cleanup` still run, and a block
   lists what wasn't upgraded.
 - With `HOMEBREW_NO_INSTALL_CLEANUP` set, Homebrew no longer removes an
@@ -125,6 +125,11 @@ have none.
 
 ### Changed
 
+- The minimum free disk space is 10 GB instead of 5, for the large
+  builds from source that are now common on Intel Macs. Below it, the
+  session is blocked before anything runs, and the formula upgrades stop
+  before the next one. A Mac with 5 to 10 GB free, which ran before, is
+  now blocked, unattended sessions too. The 20 GB warning is unchanged.
 - `ci/check` runs the tests 4 at a time (`bats --jobs 4`; GNU parallel
   is in the bats container), in CI too.
 - CI: the two jobs stop after 60 minutes instead of GitHub's 6 hours,

@@ -155,7 +155,7 @@ MacPorts also needs Xcode or at least the Command Line Tools, even though it mos
 
 `--doctor`, `--prune`, `--migrate` and `--sbom` also look at `pipx` environments and `npm` global packages when those are installed, and `--sbom` summarizes what `trivy` finds when it is installed. None of them is required: a missing one is skipped and said so.
 
-The disk needs at least 5 GB free (20 GB recommended); below that, praetorian stops before doing anything. praetorian refuses to run as root: Homebrew refuses it too, and praetorian asks for sudo itself, one command at a time.
+The disk needs at least 10 GB free (20 GB recommended); below that, praetorian stops before doing anything. praetorian refuses to run as root: Homebrew refuses it too, and praetorian asks for sudo itself, one command at a time.
 
 ### Optional: Touch ID for sudo
 
@@ -407,8 +407,8 @@ praetorian never stops silently. Every block prints the same five parts, even wi
 | Run as root | whole session (exit 1), checked first, before `lib/` is loaded | Homebrew refuses root; praetorian requests sudo itself |
 | No Homebrew and no MacPorts | whole session (exit 1) | nothing to maintain |
 | Xcode installed but not ready | whole session (exit 1) | builds fail or hang forever |
-| Less than 5 GB free | whole session (exit 1) | a full disk mid-install leaves half-installed packages |
-| Less than 5 GB free before one of the formula upgrades | the formulae left and the casks; `brew autoremove` and `brew cleanup` still run | the source downloads and each build eat into the space checked at the start |
+| Less than 10 GB free | whole session (exit 1) | a full disk mid-install leaves half-installed packages |
+| Less than 10 GB free before one of the formula upgrades | the formulae left and the casks; `brew autoremove` and `brew cleanup` still run | the source downloads and each build eat into the space checked at the start |
 | Unattended and still no network after 5 minutes (`github.com` doesn't answer) | whole session (exit 1), before the lock; with `--dry-run`, a warning | `brew update` fails and every download retries for nothing ([decision 23](#23-wait-for-the-network-before-starting)) |
 | Another praetorian session running | whole session (exit 1) | two brew/port runs on the same packages corrupt them. See [the session lock](#the-session-lock) for how a lock left by a crashed session is taken over |
 | `PRAETORIAN_HOME` not an absolute path, or containing a newline | whole session (exit 1), before anything is written | a relative path would follow the current directory |
@@ -535,7 +535,7 @@ Maintenance Homebrew (skipped if Homebrew is absent)
         → brew fetch --deps   (download everything first)
         → upgrade one by one   (auto-fix + one retry on known failures;
                                 free space checked before each one: below
-                                5 GB, the rest and the casks are skipped)
+                                10 GB, the rest and the casks are skipped)
    5. casks: repair interrupted upgrades, list outdated (minus quarantine)
         → upgrade one by one   (sudo deferred in unattended mode)
    6. brew autoremove
@@ -623,7 +623,7 @@ On exit, praetorian removes `.lock/` only if it still holds its own PID. A maint
 | `CONTAINER_ENGINE` | `ci/check` only: `docker` or `podman`. Without it, the first one whose daemon answers. |
 | `PRAETORIAN_PORT_PREFIX` | **Tests only.** MacPorts prefix (default `/opt/local`), so the tests can install a fake `port`. With the default prefix, `port` and every directory above it up to `/` must belong to root and be writable by root only before any `sudo port`, whatever `sudo` comes first in the `PATH`. With another prefix, that check is skipped only when the `sudo` found in the `PATH` isn't a setuid-root file (the tests' fake `sudo`, which can't give root); with a real `sudo`, it applies and blocks. |
 | `PRAETORIAN_SUDO_LOCAL` | **Tests only.** File written by `praetorian-sudo-setup` instead of `/etc/pam.d/sudo_local`. Since that script runs as root, the variable is refused (exit 1) under a real sudo (`SUDO_USER` set, so `sudo -E` can't pass it), for a relative path, a path with `..`, a symbolic link, and anything under `/etc`, `/private/etc`, `/System` or `/usr`. |
-| `PRAETORIAN_MIN_FREE_GB` | **Tests only.** Minimum free space in GB (default 5), to test the disk-full block. Digits only, read as decimal; anything else gives a warning and the default 5. |
+| `PRAETORIAN_MIN_FREE_GB` | **Tests only.** Minimum free space in GB (default 10), to test the disk-full block. Digits only, read as decimal; anything else gives a warning and the default 10. |
 | `PRAETORIAN_DOCTOR_ROOT` | **Tests only.** Prefix of the system paths `--doctor` reads (`/Library/Java/JavaVirtualMachines`, `/Library/Developer/CommandLineTools`, `/etc/paths`, `/etc/paths.d`). They are only read, and the commands built from them are printed, never run. |
 | `PRAETORIAN_CAFFEINATED` | Internal: set when praetorian re-runs itself under `caffeinate`, so it doesn't loop. |
 
@@ -680,7 +680,7 @@ Before any formula upgrade, praetorian runs `brew fetch --formula --deps <all ou
 
 *Why:* a network glitch then fails in seconds, during the download, instead of after an hour of compiling when brew fetches a resource at the very end. It also lets the auto-fix above retry a download without rebuilding blindly.
 
-Those downloads, and every build's temporary files, use space the check before the session didn't count. So the free space is checked again before each formula: below the minimum (5 GB), praetorian stops upgrading formulae, skips the casks, still runs `brew autoremove` and `brew cleanup`, and blocks with the list of formulae left. Homebrew removes an upgraded formula's old version by itself (`brew cleanup <formula>` at the end of `brew upgrade`); with `HOMEBREW_NO_INSTALL_CLEANUP` set it doesn't, and praetorian runs that `brew cleanup <formula>` itself after each upgrade.
+Those downloads, and every build's temporary files, use space the check before the session didn't count. So the free space is checked again before each formula: below the minimum (10 GB), praetorian stops upgrading formulae, skips the casks, still runs `brew autoremove` and `brew cleanup`, and blocks with the list of formulae left. Homebrew removes an upgraded formula's old version by itself (`brew cleanup <formula>` at the end of `brew upgrade`); with `HOMEBREW_NO_INSTALL_CLEANUP` set it doesn't, and praetorian runs that `brew cleanup <formula>` itself after each upgrade.
 
 ### 6. Keep build logs before cleanup
 
