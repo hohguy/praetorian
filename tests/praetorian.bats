@@ -786,6 +786,8 @@ in_praetorian() {
 @test "dry-run: quarantine.tsv left untouched, even with expired entries" {
     mkdir -p "${HOME}/praetorian"
     printf 'foo\tformula\t%s\tpkg\tx\n' "$(($(date +%s) - 40 * 86400))" >"${QUARANTINE}"
+    # A build entry for a formula now current would be lifted outside a dry-run.
+    printf 'bar\tformula\t%s\tbuild\tbuild failed\n' "$(date +%s)" >>"${QUARANTINE}"
     cp "${QUARANTINE}" "${BATS_TEST_TMPDIR}/before"
     run "${PRAETORIAN}" --dry-run
     [ "${status}" -eq 0 ]
@@ -873,12 +875,62 @@ in_praetorian() {
 }
 
 @test "dependency build failure → the dependency and the formula quarantined" {
-    export BREW_OUTDATED_FORMULA=foo BREW_UPGRADE_RC=1
+    # bar failed to build, so it's still outdated.
+    export BREW_OUTDATED_FORMULA=foo BREW_OUTDATED_FORMULA_AFTER=$'foo\nbar' BREW_UPGRADE_RC=1
     export BREW_UPGRADE_OUTPUT=$'Last 15 lines from /x/Library/Logs/Homebrew/bar/01.cmake:\ncmake: error'
     run "${PRAETORIAN}"
     [ "${status}" -eq 2 ]
     run cut -f1,2,4 "${QUARANTINE}"
     [ "${output}" = $'bar\tformula\tbuild\nfoo\tformula\tbuild' ]
+}
+
+# bar fails to build on its own, then foo's upgrade builds it as a dependency.
+built_later_env() {
+    export BREW_OUTDATED_FORMULA=$'bar\nfoo' BREW_OUTDATED_FORMULA_AFTER=$'bar\nfoo'
+    export BREW_OUTDATED_FORMULA_LATER="" BREW_UPGRADE_FAILS=bar BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT=$'Last 15 lines from /x/Library/Logs/Homebrew/bar/01.make:\nmake: error'
+}
+
+@test "build failure, then built as a dependency later in the session: quarantine lifted" {
+    built_later_env
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"bar failed to build, then got built after all"* ]] || false
+    [[ "${output}" != *"Quarantined (skipped"* ]] || false
+    run grep -q '^bar' "${QUARANTINE}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "build failure, not installed: not taken for built" {
+    built_later_env
+    export BREW_NOT_INSTALLED=bar
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    run cut -f1,4 "${QUARANTINE}"
+    [ "${output}" = $'bar\tbuild' ]
+}
+
+@test "dependency built later: the formula it held back is lifted too, its failure kept" {
+    # foo's upgrade fails on bar; baz's upgrade then builds bar.
+    export BREW_OUTDATED_FORMULA=$'foo\nbaz' BREW_OUTDATED_FORMULA_AFTER=$'foo\nbar\nbaz'
+    export BREW_OUTDATED_FORMULA_LATER=foo BREW_UPGRADE_FAILS=foo BREW_UPGRADE_RC=1
+    export BREW_UPGRADE_OUTPUT=$'Last 15 lines from /x/Library/Logs/Homebrew/bar/01.make:\nmake: error'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"foo: bar got built after all"* ]] || false
+    [ ! -s "${QUARANTINE}" ]
+}
+
+@test "build failure after an auto-fix, then built as a dependency: the retry's failure goes too" {
+    built_later_env
+    export BREW_LATER_AFTER=2 BREW_UPGRADE_RC2=1
+    export BREW_UPGRADE_OUTPUT='Error: bar: Failed to download resource "x"'
+    export BREW_UPGRADE_OUTPUT2=$'Last 15 lines from /x/Library/Logs/Homebrew/bar/01.make:\nmake: error'
+    run "${PRAETORIAN}"
+    [ "${status}" -eq 0 ]
+    [ "$(grep -cx 'upgrade --formula bar' "${BREW_CALLS}")" -eq 2 ]
+    [[ "${output}" == *"bar failed to build, then got built after all"* ]] || false
+    [[ "${output}" != *"Failed steps"* ]] || false
 }
 
 # --- Homebrew: casks -----------------------------------------------------------
