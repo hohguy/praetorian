@@ -150,6 +150,66 @@ upgrade_formula() {
     fi
 }
 
+# formula_current name: installed and not outdated. Given a name, brew
+# outdated exits 1 when the formula is outdated, and on any error, which
+# counts as not current. brew resolves the name itself (a tap formula, or
+# one installed under an alias, is listed under another name).
+formula_current() {
+    brew outdated --formula --quiet "$1" </dev/null >/dev/null 2>>"${LOG_FILE}" &&
+        brew list --formula --versions "$1" </dev/null >/dev/null 2>&1
+}
+
+# lift_built_later: a formula quarantined for a failed build can get
+# built after all, most often as the dependency of a formula upgraded
+# later (brew upgrade builds the outdated dependencies first). Once it is
+# installed and current, its entry goes, and so does the entry of a
+# formula held back only by such dependencies ("dependency … fails to
+# build"); that formula is then upgraded at the next session. Entries
+# from earlier sessions are lifted the same way (a formula built by hand).
+lift_built_later() {
+    [[ "${DRY_RUN}" != true && -s "${QUARANTINE_FILE}" ]] || return 0
+    local entries name detail deps d all tmp q
+    local -a lifted=() kept=() dep_list=()
+    entries=$(awk -F'\t' '$2 == "formula" && $4 == "build" {print $1 "\t" $5}' "${QUARANTINE_FILE}")
+    [[ -n "${entries}" ]] || return 0
+
+    while IFS=$'\t' read -r name detail; do
+        if [[ "${detail}" == "dependency "*" fails to build" ]]; then
+            deps=${detail#dependency }
+            deps=${deps% fails to build}
+            all=true
+            # read -a: split on spaces without glob expansion of the names.
+            read -r -a dep_list <<<"${deps}"
+            for d in "${dep_list[@]}"; do
+                formula_current "${d}" || all=false
+            done
+            [[ "${all}" == true ]] || continue
+            warn "${name}: ${deps} got built after all, quarantine lifted (${name} is upgraded at the next session)."
+        elif formula_current "${name}"; then
+            forget_failure "Upgrading formula ${name}"
+            forget_failure "Upgrading formula ${name} (2nd try after fix)"
+            warn "${name} failed to build, then got built after all (as a dependency of another formula, or by hand): quarantine lifted."
+        else
+            continue
+        fi
+        lifted+=("${name}")
+        log_detail "QUARANTINE - ${name} (formula): built after all"
+    done <<<"${entries}"
+    ((${#lifted[@]} > 0)) || return 0
+
+    tmp=$(mktemp -t praetorian_q)
+    awk -F'\t' 'NR == FNR {l[$0] = 1; next} !($2 == "formula" && $4 == "build" && ($1 in l))' \
+        <(printf '%s\n' "${lifted[@]}") "${QUARANTINE_FILE}" >"${tmp}"
+    mv "${tmp}" "${QUARANTINE_FILE}"
+    for name in "${lifted[@]}"; do
+        kept=()
+        for q in "${NEWLY_QUARANTINED[@]+"${NEWLY_QUARANTINED[@]}"}"; do
+            [[ "${q}" == "${name} (formula) — "* ]] || kept+=("${q}")
+        done
+        NEWLY_QUARANTINED=("${kept[@]+"${kept[@]}"}")
+    done
+}
+
 # upgrade_cask name [flags…]
 upgrade_cask() {
     local c=$1 before=${STEP_FAIL}
@@ -380,6 +440,7 @@ maintenance_brew() {
                 "then run praetorian again: the formulae left are upgraded then."
         fi
     fi
+    lift_built_later
 
     # --- Casks: skipped when the disk ran low above, their downloads need
     # space too.

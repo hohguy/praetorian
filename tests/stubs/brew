@@ -8,14 +8,21 @@
 #                         attempted (default: BREW_OUTDATED_FORMULA)
 #   BREW_OUTDATED_AFTER_RC        exit code of brew outdated --formula
 #                         once an upgrade was attempted (default 0)
+#   BREW_OUTDATED_FORMULA_LATER   outdated formulae once more upgrades
+#                         than BREW_LATER_AFTER (default 1) were attempted
+#                         (default: BREW_OUTDATED_FORMULA_AFTER)
 #   BREW_UPGRADE_OUTPUT   / BREW_UPGRADE_RC      brew upgrade --formula
 #   BREW_UPGRADE_OUTPUT2  / BREW_UPGRADE_RC2     2nd brew upgrade --formula
 #                         (retry after an auto-fix; default: same as 1st)
+#   BREW_UPGRADE_FAILS    set: only the formulae listed get the output and
+#                         code above, the others upgrade with no output
 #   BREW_CASK_OUTPUT      / BREW_CASK_RC         brew upgrade --cask
 #   BREW_FETCH_RC         brew fetch
 #   BREW_REINSTALL_RC     brew reinstall
 #   BREW_LIST_FILES       files of "brew list --formula <f>" (empty:
 #                         formula not installed, code 1)
+#   BREW_NOT_INSTALLED    formulae "brew list --formula --versions <f>"
+#                         says aren't installed (code 1); others: "<f> 1.0"
 #   BREW_USES             formulae depending on <f> (brew uses --installed)
 #   BREW_USES_MAP         per formula instead: "f:dep1,dep2 g:dep3"; a
 #                         dependent "brew uninstall --formula" removed is gone
@@ -63,16 +70,31 @@ fi
 
 case "$1 ${2:-}" in
     "outdated --formula")
-        if [[ -e "${state}.upgraded" ]]; then
-            say "${BREW_OUTDATED_FORMULA_AFTER-${BREW_OUTDATED_FORMULA:-}}"
-            exit "${BREW_OUTDATED_AFTER_RC:-0}"
+        rc=${BREW_OUTDATED_AFTER_RC:-0}
+        if [[ -e "${state}.upgraded2" ]]; then
+            list=${BREW_OUTDATED_FORMULA_LATER-${BREW_OUTDATED_FORMULA_AFTER-${BREW_OUTDATED_FORMULA:-}}}
+        elif [[ -e "${state}.upgraded" ]]; then
+            list=${BREW_OUTDATED_FORMULA_AFTER-${BREW_OUTDATED_FORMULA:-}}
         else
-            say "${BREW_OUTDATED_FORMULA:-}"
+            list=${BREW_OUTDATED_FORMULA:-} rc=0
         fi
+        # Given a name, like brew: that formula only, code 1 when outdated.
+        if [[ $# -gt 3 && "${!#}" != -* ]]; then
+            ((rc == 0)) || exit "${rc}"
+            grep -qxF -- "${!#}" <<<"${list}" || exit 0
+            echo "${!#}"
+            exit 1
+        fi
+        say "${list}"
+        exit "${rc}"
         ;;
     "outdated --cask") say "${BREW_OUTDATED_CASK:-}" ;;
     "upgrade --formula")
-        if [[ -e "${state}.upgraded" ]]; then
+        echo >>"${state}.upgrades"
+        (($(wc -l <"${state}.upgrades") <= ${BREW_LATER_AFTER:-1})) || touch "${state}.upgraded2"
+        if [[ -n "${BREW_UPGRADE_FAILS+set}" && " ${BREW_UPGRADE_FAILS} " != *" ${!#} "* ]]; then
+            rc=0
+        elif [[ -e "${state}.upgraded" ]]; then
             say "${BREW_UPGRADE_OUTPUT2-${BREW_UPGRADE_OUTPUT:-}}"
             rc=${BREW_UPGRADE_RC2:-${BREW_UPGRADE_RC:-0}}
         else
@@ -106,6 +128,11 @@ case "$1 ${2:-}" in
     "fetch "*) exit "${BREW_FETCH_RC:-0}" ;;
     "reinstall "*) exit "${BREW_REINSTALL_RC:-0}" ;;
     "list --formula")
+        if [[ "${3:-}" == --versions ]]; then
+            [[ " ${BREW_NOT_INSTALLED:-} " != *" ${4:-} "* ]] || exit 1
+            echo "${4:-} 1.0"
+            exit 0
+        fi
         if [[ "${3:-}" == --installed-on-request ]]; then
             say "${BREW_ON_REQUEST:-}"
             exit "${BREW_ON_REQUEST_RC:-0}"

@@ -61,6 +61,12 @@ have none.
   formula with several requirements not met ("Unsatisfied requirements
   failed this build") is quarantined too, instead of retried every
   session.
+- A formula whose upgrade failed to build, then got built later in the
+  session as another formula's dependency, stayed quarantined for 7
+  days and was listed in the failed steps. Once the formula upgrades
+  are done, a formula quarantined for a failed build (in this session
+  or an earlier one) that is installed and current is lifted, and so
+  is a formula held back only by such dependencies.
 - `ci/macos-tests --jobs N` ran no test: the script resets the PATH,
   and bats needs GNU parallel for `--jobs`. It now keeps `parallel`,
   and only that, in the PATH.

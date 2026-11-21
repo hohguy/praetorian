@@ -536,6 +536,7 @@ Maintenance Homebrew (skipped if Homebrew is absent)
         → upgrade one by one   (auto-fix + one retry on known failures;
                                 free space checked before each one: below
                                 10 GB, the rest and the casks are skipped)
+        → lift build quarantines of formulae now installed and current
    5. casks: repair interrupted upgrades, list outdated (minus quarantine)
         → upgrade one by one   (sudo deferred in unattended mode)
    6. brew autoremove
@@ -655,6 +656,8 @@ A package that fails for a cause that won't go away on its own is written to `qu
 | `build`: compilation fails, even after auto-fixes | `Last 15 lines from ~/Library/Logs/Homebrew/<name>/…` | **7 days**, or right away when the toolchain changes |
 
 When a *dependency* fails to build, the requested formula is quarantined too, because it would fail the same way. Anything quarantined earlier in the same session is skipped.
+
+A build failure can go away within the session: brew upgrade builds the outdated dependencies of a formula first, so a formula that failed on its own can get built as the dependency of a formula upgraded later. Once the formula upgrades are done, a formula quarantined for a failed build, in this session or an earlier one, that is installed and current is lifted (`brew outdated` has to answer), and so is a formula held back only by such dependencies; that formula is then upgraded at the next session.
 
 *Why:* without a quarantine, a formula that needs Xcode gets rebuilt and fails on every run, sometimes after an hour of compiling. Build failures expire sooner (7 days) because a new formula revision often fixes them. `.toolchain` records whether the last run used Xcode or only the Command Line Tools: when that changes (for example after you install Xcode), build quarantines no longer apply, because they were recorded with a different compiler.
 
