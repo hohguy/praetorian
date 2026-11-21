@@ -21,8 +21,8 @@ is opened.
 
 Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 `dropped`. The link is the live record; this file only points to it.
-Last checked against upstream: 2026-11-16 (latest release 1.5.2; 16 of
-our pull requests merged; #40, #51 and #52 open).
+Last checked against upstream: 2026-11-20 (latest release 1.5.2; 19 of
+our pull requests merged; issues #55 and #56 open, no pull request open).
 
 Pace: at most two new items a day; ready branches wait, each cut from
 `main` on its own (nothing stacked). CHANGELOG: every PR adds a line to
@@ -35,33 +35,35 @@ held branch is rebased on the latest `main` right before it's posted.
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| F2 | CI runs the tests one at a time; `--jobs` in CI (the bats container has GNU parallel, the macOS runner doesn't) | Issue (his decision) | posted: [#40](https://github.com/victor-sys-admin/praetorian/issues/40), no reply yet. His CI rework ([#41](https://github.com/victor-sys-admin/praetorian/pull/41), [#42](https://github.com/victor-sys-admin/praetorian/pull/42)) runs the jobs in parallel, not the tests. Mostly a gain for contributors waiting on CI. Its prerequisite, Y, is merged. |
-| R3 | Free space: raise the 5 GB floor? (row below) | Issue | posted: [#51](https://github.com/victor-sys-admin/praetorian/issues/51) (2026-11-16) |
-| G1 | Consent prompts: one request per site, following up to 5 redirects (row below) | PR | posted: [#52](https://github.com/victor-sys-admin/praetorian/pull/52) (2026-11-16) |
+| C | A port with no archive at all on packages.macports.org told apart from "none for this Mac yet" | Issue, then PR if wanted | posted: [#55](https://github.com/victor-sys-admin/praetorian/issues/55) (2026-11-17), no reply yet |
+| D | `--limit N` and `--exclude a,b` for batch migrations | Issue, then PR if wanted | posted: [#56](https://github.com/victor-sys-admin/praetorian/issues/56) (2026-11-17), no reply yet |
 
 ### Next
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| C | A port with no archive at all on packages.macports.org told apart from "none for this Mac yet" (both read "has no archive of … for <platform>" on `main`, checked 2026-11-14) | Issue, then PR | planned: doesn't depend on MacPorts #74668, so it can go before B. With it: a port with no binary yet isn't a failure and shouldn't suggest `port clean` or Trac (seen 2026-11-15: `gh`, `p5.34-json-xs`) |
+| QR | A formula that failed, then got built anyway as another formula's dependency later in the session (`llama.cpp`, via `whisper.cpp`), stays quarantined for 7 days and is listed in the failed steps. Lift the entry when the formula is installed and current at the end of the session | Issue, then PR | next to post. Branch `fix/quarantine-built-later`, rebased on `main` 2026-11-20. Independent review: nothing blocking; fixed since: a tap formula taken for current (`brew outdated` lists `user/tap/name`), the CHANGELOG's "reported as a failed build" (the Problems line stays). 9 tests; the 3 added for the review each fail with their line removed |
+| PIN | praetorian has no handling of `brew pin`: `brew outdated --quiet` lists pinned formulae, and `brew upgrade <pinned>` fails ("Not upgrading 1 pinned package"), so they are tried, fail and get quarantined | Issue, then PR | confirmed by reading (2026-11-15). After QR, which touches the same loop |
+| TAP | The quarantine skip never applies to a tap formula: `filter_out` compares whole lines, the entry `foo` with `brew outdated`'s `user/tap/foo`, so a quarantined tap formula is retried every session | Issue, then PR | found by the QR review 2026-11-20, read on `main`. Named in QR's PR, not fixed there. After QR |
 | I2 | The report doesn't check guessed port names (`node` → `nodejs22`) for `replaced_by`; `--migrate` does | PR (offered in PR #19) | planned: moved up; the offer in #19 probably went unnoticed, so we send it. Not rechecked on `main` yet. |
 | E | Xcode: a dry run skips the check instead of warning (`praetorian`: `[[ "${DRY_RUN}" == true ]] \|\| check_xcode_ready`), and the check stops at the first problem (checked on `main` 2026-11-14) | Issue, then PR if wanted | planned |
-| D | `--limit N` and `--exclude a,b` for batch migrations (not on `main`, checked 2026-11-14) | Issue, then PR if wanted | planned |
 
 ### Waiting
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| B1 | Maintenance upgrade one port per `port` call, without `-p`: on `main` a single `port -N -p upgrade <list>` (lib/macports.sh, checked 2026-11-15) leaves a port uninstalled when its forced rebuild fails (#74668, no `-b` needed) | Issue, then PR | planned: waits for macports-base PR #425 to be merged or released (below) |
-| B2 | `port -b` for migration installs and maintenance upgrades; `--allow-build` covers both; ports whose license allows no binary blocked | Issue, then PR | planned: waits for the same, ideally a MacPorts release with the fix |
+| B1 | Maintenance upgrade one port per `port` call, without `-p`: on `main` a single `port -N -p upgrade <list>` (lib/macports.sh, checked 2026-11-15) leaves a port uninstalled when its forced rebuild fails (#74668, no `-b` needed) | Issue, then PR | planned: waits for a MacPorts release with 1d0a088 (below); F1 and F2 (sweep) first |
+| B2 | `port -b` for migration installs and maintenance upgrades; `--allow-build` covers both; ports whose license allows no binary blocked | Issue, then PR | planned: waits for a MacPorts release with 1d0a088 and, for `-b -p`, macports-base #435 |
 
 B1 and B2 wait for [MacPorts #74668](https://trac.macports.org/ticket/74668)
 (`port -b -p upgrade` on a forced rebuild compiles the port, then leaves
-it uninstalled). A fix is proposed in
-[macports-base PR #425](https://github.com/macports/macports-base/pull/425)
-(2026-11-13; CI green on macOS 15 and 26, no review yet as of 2026-11-15). Until a
-MacPorts release includes a fix, `extras` upgrades one port per `port`
-call inside one sudo, without `-p`.
+it uninstalled). jmroot fixed it in
+[1d0a088](https://github.com/macports/macports-base/commit/1d0a0882c) (master, 2026-11-20; ticket closed),
+so our [PR #425](https://github.com/macports/macports-base/pull/425) was closed. With `-b -p` the port was
+still built from source, then discarded: follow-up
+[PR #435](https://github.com/macports/macports-base/pull/435) (2026-11-20). No release has the fix yet
+(latest 2.12.7, 2026-10-13). Until one does, `extras` upgrades one port
+per `port` call inside one sudo, without `-p`.
 
 ### Unattended sessions (to build on `extras` first)
 
@@ -76,21 +78,13 @@ gets a test that makes it fire.
 |---|---|---|---|
 | R1 | After a failed build, Homebrew looks up a GitHub token to search for known issues, and asks the macOS keychain; the session waited on that prompt. `--unattended` ("never waits for input") now sets `HOMEBREW_NO_GITHUB_API=1`; attended sessions are left alone | `extras`, then issue + PR | on `extras` (2026-11-15). Checked inside Homebrew 7.0.13: one issue search calls the keychain lookup twice without it, never with it. Reviewed 2026-11-16: sound; README now says "GitHub API searches", not every GitHub lookup; not covered: `HOMEBREW_VERIFY_ATTESTATIONS` (opt-in) still asks for credentials. posted: [#49](https://github.com/victor-sys-admin/praetorian/issues/49), [#50](https://github.com/victor-sys-admin/praetorian/pull/50) (2026-11-16); **merged** 2026-11-16 (the maintainer resolved a CHANGELOG conflict with #48 by hand) |
 | R2 | A step that stops making progress is never stopped: an `npm install` inside a formula build sat 7 hours on closed connections (`brew fetch --deps` doesn't fetch what a build downloads itself). A no-progress watchdog: no output and no CPU in the step's process tree for N minutes → stop the tree (escalating to SIGKILL: npm ignored SIGTERM), mark the step failed, quarantine, go on | Not now | parked: too large a change for now. If it comes back: unattended only; watch the step's process tree (new processes, CPU), not its output (brew writes build output to its own logs); fail loudly when there is no tree to watch |
-| R3 | Free space is only checked between formulae (U), and the floor is 5 GB: one formula can build dozens of dependencies inside a single `brew upgrade`. Check during a step from the R2 loop; raise the floor (e.g. the larger of 20 GB and 5% of the disk) | Issue, offering a PR | drafted 2026-11-16 (issue only, the feature form): the floor question first, checking during a step as a separate, bigger question; B1 not mentioned (not upstream yet). posted: [#51](https://github.com/victor-sys-admin/praetorian/issues/51) (2026-11-16) |
+| R3 | Free space is only checked between formulae (U), and the floor is 5 GB: one formula can build dozens of dependencies inside a single `brew upgrade`. Check during a step from the R2 loop; raise the floor (e.g. the larger of 20 GB and 5% of the disk) | Issue, offering a PR | drafted 2026-11-16 (issue only, the feature form): the floor question first, checking during a step as a separate, bigger question; B1 not mentioned (not upstream yet). merged: the floor is 10 GB, [#51](https://github.com/victor-sys-admin/praetorian/issues/51), PR [#54](https://github.com/victor-sys-admin/praetorian/pull/54) (2026-11-20). Checking during a step not raised |
 | R4 | Optional: start no new formula after a set time, so the Mac is free in the morning | Suggestion | to decide |
-
-### Candidates (seen 2026-11-15)
-
-| Item | Change | Kind | Status |
-|---|---|---|---|
-| QR | A formula that failed, then got built anyway as another formula's dependency later in the session (`llama.cpp`, via `whisper.cpp`), stays quarantined for 7 days and is reported as a failed build. Lift the entry when the formula is installed and current at the end of the session | Issue, then PR | confirmed on `main` (nothing lifts a build entry but time or a toolchain change). Branch `fix/quarantine-built-later` built 2026-11-16: after the formula upgrades, one `brew outdated` (must answer), build entries of formulae installed and current lifted, and those held back only by such dependencies; 6 tests, each guard checked by breaking the code. Waits for the maintainer to catch up |
-| PIN | praetorian has no handling of `brew pin`: `brew outdated --quiet` lists pinned formulae, and `brew upgrade <pinned>` fails ("Not upgrading 1 pinned package"), so they are tried, fail and get quarantined | Issue, then PR | confirmed by reading (2026-11-15). After QR, which touches the same loop |
-| G1 | The homepage consent prompt says "2 requests at most" (`lib/migrate.sh`, our #35; the CHANGELOG says one HEAD request per site), but `curl -L --max-redirs 5` follows up to 5 redirects per site, maybe to other hosts: up to 12 requests. It's what the user agrees to | PR (small, wording) | found by the sweep 2026-11-16, checked on `main`. posted: [#52](https://github.com/victor-sys-admin/praetorian/pull/52) (2026-11-16) |
 
 ### Sweep of earlier work (2026-11-16)
 
 An independent read of the `extras`-only code and of our 14 merged pull
-requests together. On `main`: G1 above; one `[[ … ]]` assertion without
+requests together. On `main`: G1 (now merged); one `[[ … ]]` assertion without
 `|| false` that can't fail (`tests/options.bats` ~368, the maintainer's
 line, not ours: mention it, don't fix it in our PRs). No cross-PR
 conflict, no field written and never read, CHANGELOG matches the code.
@@ -169,6 +163,9 @@ merged, some may move up.
 | Y | Two tests assumed a session under a minute and failed under load | merged: [#45](https://github.com/victor-sys-admin/praetorian/issues/45), PR [#46](https://github.com/victor-sys-admin/praetorian/pull/46) (2026-11-15) |
 | Q | Any unsatisfied requirement quarantined as `xcode`; now Xcode only when Homebrew's Xcode line is there, anything else as `requirement` | merged: [#47](https://github.com/victor-sys-admin/praetorian/issues/47), PR [#48](https://github.com/victor-sys-admin/praetorian/pull/48) |
 | R1 | `--unattended`: `HOMEBREW_NO_GITHUB_API=1`, so no keychain prompt after a failed build | merged: [#49](https://github.com/victor-sys-admin/praetorian/issues/49), PR [#50](https://github.com/victor-sys-admin/praetorian/pull/50) |
+| F2 | CI ran the tests one at a time | merged, Linux half: [#40](https://github.com/victor-sys-admin/praetorian/issues/40), PR [#53](https://github.com/victor-sys-admin/praetorian/pull/53) (2026-11-17); the macOS runner has no GNU parallel |
+| G1 | The consent prompt said "2 requests at most"; it's one request per site, following up to 5 redirects | merged: PR [#52](https://github.com/victor-sys-admin/praetorian/pull/52) (2026-11-16) |
+| R3 | Free space floor 5 GB → 10 GB | merged: [#51](https://github.com/victor-sys-admin/praetorian/issues/51), PR [#54](https://github.com/victor-sys-admin/praetorian/pull/54) (2026-11-20) |
 | J | coreutils `g`-prefixed names | dropped: Homebrew uses the same names; a `gnubin` PATH line is already blocked |
 | L | Test-suite run time | folded into F |
 
