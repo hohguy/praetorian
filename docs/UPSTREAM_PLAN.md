@@ -21,8 +21,9 @@ is opened.
 
 Status: `planned`, `posted` (issue or PR open), `merged`, `declined`,
 `dropped`. The link is the live record; this file only points to it.
-Last checked against upstream: 2026-11-20 (latest release 1.5.2; 19 of
-our pull requests merged; issues #55 and #56 open, no pull request open).
+Last checked against upstream: 2026-11-21 (latest release 1.5.2; 19 of
+our pull requests merged; issues #55, #56 and #57 open, pull request #58
+open).
 
 Pace: at most two new items a day; ready branches wait, each cut from
 `main` on its own (nothing stacked). CHANGELOG: every PR adds a line to
@@ -37,15 +38,15 @@ held branch is rebased on the latest `main` right before it's posted.
 |---|---|---|---|
 | C | A port with no archive at all on packages.macports.org told apart from "none for this Mac yet" | Issue, then PR if wanted | posted: [#55](https://github.com/victor-sys-admin/praetorian/issues/55) (2026-11-17), no reply yet |
 | D | `--limit N` and `--exclude a,b` for batch migrations | Issue, then PR if wanted | posted: [#56](https://github.com/victor-sys-admin/praetorian/issues/56) (2026-11-17), no reply yet |
+| QR | A formula that failed, then got built anyway as another formula's dependency later in the session (`llama.cpp`, via `whisper.cpp`), stays quarantined for 7 days and is listed in the failed steps. Lift the entry when the formula is installed and current at the end of the session | Issue, then PR | posted: [#57](https://github.com/victor-sys-admin/praetorian/issues/57) and PR [#58](https://github.com/victor-sys-admin/praetorian/pull/58) (2026-11-21). Whether a formula is current: `brew outdated --formula --quiet <name>` exit code plus `brew list --versions` (brew resolves tap and alias names). 4 new tests and 2 extended; every check in the step fails a test when broken |
 
 ### Next
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| QR | A formula that failed, then got built anyway as another formula's dependency later in the session (`llama.cpp`, via `whisper.cpp`), stays quarantined for 7 days and is listed in the failed steps. Lift the entry when the formula is installed and current at the end of the session | Issue, then PR | next to post. Branch `fix/quarantine-built-later`, rebased on `main` 2026-11-20. Independent review: nothing blocking; fixed since: a tap formula taken for current (`brew outdated` lists `user/tap/name`), the CHANGELOG's "reported as a failed build" (the Problems line stays). 9 tests; the 3 added for the review each fail with their line removed |
-| PIN | praetorian has no handling of `brew pin`: `brew outdated --quiet` lists pinned formulae, and `brew upgrade <pinned>` fails ("Not upgrading 1 pinned package"), so they are tried, fail and get quarantined | Issue, then PR | confirmed by reading (2026-11-15). After QR, which touches the same loop |
-| TAP | The quarantine skip never applies to a tap formula: `filter_out` compares whole lines, the entry `foo` with `brew outdated`'s `user/tap/foo`, so a quarantined tap formula is retried every session | Issue, then PR | found by the QR review 2026-11-20, read on `main`. Named in QR's PR, not fixed there. After QR; the stub review (SF) goes with it |
-| TA | Audit of the tests we added (our 19 merged PRs): for each guard, break it and run the suite; a test that no breakage fails is redundant, a guard no test catches is uncovered. QR's own tests had 2 duplicates in 9, found this way (2026-11-20) | Local first; findings as an issue | planned: after QR is posted; runs locally, no upstream pace. The maintainer's tests only mentioned, not touched |
+| PIN | praetorian has no handling of `brew pin`: `brew outdated --quiet` lists pinned formulae, and `brew upgrade <pinned>` fails ("Not upgrading 1 pinned package"), so they are tried, fail and get quarantined | Issue, then PR | confirmed by reading (2026-11-15). After QR (#58) is merged: it touches the same loop and adds a CHANGELOG line |
+| TAP | The quarantine skip never applies to a tap formula: `filter_out` compares whole lines, the entry `foo` with `brew outdated`'s `user/tap/foo`, so a quarantined tap formula is retried every session | Issue, then PR | found by the QR review 2026-11-20, read on `main`. Named in QR's PR (#58), not fixed there. After QR is merged; the stub review (SF) goes with it |
+| TA | Audit of the tests we added (our 19 merged PRs): for each guard, break it and run the suite; a test that no breakage fails is redundant, a guard no test catches is uncovered. QR's own tests had 2 duplicates in 9, found this way (2026-11-20) | Local first; findings as an issue | next: QR is posted; runs locally, no upstream pace. The maintainer's tests only mentioned, not touched |
 | SF | Stub fidelity: `tests/stubs/brew` checked against real brew output (names, exit codes, error lines). The tap bug (TAP) passed 363 tests because the stub never prints `user/tap/name` | With TAP | planned: done as part of TAP, whose fix needs the stub to print tap names anyway; findings beyond TAP as an issue |
 | I2 | The report doesn't check guessed port names (`node` → `nodejs22`) for `replaced_by`; `--migrate` does | PR (offered in PR #19) | planned: moved up; the offer in #19 probably went unnoticed, so we send it. Not rechecked on `main` yet. |
 | E | Xcode: a dry run skips the check instead of warning (`praetorian`: `[[ "${DRY_RUN}" == true ]] \|\| check_xcode_ready`), and the check stops at the first problem (checked on `main` 2026-11-14) | Issue, then PR if wanted | planned |
