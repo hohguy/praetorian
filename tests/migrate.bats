@@ -468,6 +468,66 @@ with_brew_gh() {
     done
 }
 
+@test "--migrate: no binary, and no archive of any version of the port (its directory answers 404) → no \"few days\" line" {
+    export BREW_LIST_FILES="/usr/local/Cellar/foo/1.0/bin/foo"
+    export PORT_AVAILABLE="foo" PORT_FILES="foo=bin/foo" CURL_PACKAGES="" CURL_PORT_DIRS="foo=404"
+    run "${PRAETORIAN}" --migrate foo
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: no precompiled MacPorts binary of foo for this Mac"* ]] || false
+    [[ "${output}" == *"No archive of any version of foo so far; unless the port is new, a binary is unlikely to come."* ]] || false
+    [[ "${output}" == *"praetorian --allow-build --migrate foo"* ]] || false
+    [[ "${output}" != *"few days"* ]] || false
+    grep -qx 'https://packages.macports.org/foo/' "${CURL_URLS}"
+
+    # --allow-build: no block, so no request on the directory.
+    : >"${CURL_URLS}"
+    run "${PRAETORIAN}" --allow-build --migrate foo
+    [ "${status}" -eq 0 ]
+    run grep -q '/foo/$' "${CURL_URLS}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "--migrate: no binary, the port's directory answering a redirect, another status or nothing → today's message" {
+    export BREW_LIST_FILES="/usr/local/Cellar/foo/1.0/bin/foo"
+    export PORT_AVAILABLE="foo" PORT_FILES="foo=bin/foo" CURL_PACKAGES=""
+    for code in 301 403 503 000; do
+        : >"${CURL_URLS}"
+        export CURL_PORT_DIRS="foo=${code}"
+        run "${PRAETORIAN}" --migrate foo
+        [ "${status}" -eq 2 ]
+        [[ "${output}" == *"Or keep foo in Homebrew for now: binaries often appear a few days after a new version."* ]] || false
+        [[ "${output}" != *"any version"* ]] || false
+        grep -qx 'https://packages.macports.org/foo/' "${CURL_URLS}"
+    done
+}
+
+@test "--migrate: two ports without a binary → the \"few days\" line only goes when both directories answer 404" {
+    export BREW_LIST_FILES=$'/usr/local/Cellar/foo/1.0/bin/foo\n/usr/local/Cellar/foo/1.0/bin/bar'
+    export PORT_AVAILABLE="foo bar" PORT_FILES="foo=bin/foo bar=bin/bar" CURL_PACKAGES=""
+    export CURL_PORT_DIRS="bar=404"
+    run "${PRAETORIAN}" --migrate foo=foo,bar
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"no archive of foo bar for"* ]] || false
+    [[ "${output}" == *"No archive of any version of bar so far; unless the port is new"* ]] || false
+    [[ "${output}" == *"binaries often appear a few days after a new version"* ]] || false
+
+    export CURL_PORT_DIRS="foo=404 bar=404"
+    run "${PRAETORIAN}" --migrate foo=foo,bar
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"No archive of any version of foo bar so far; unless they are new, binaries are unlikely to come."* ]] || false
+    [[ "${output}" != *"few days"* ]] || false
+
+    # No answer for the first: the second isn't asked (it would only wait).
+    : >"${CURL_URLS}"
+    export CURL_PORT_DIRS="foo=000 bar=404"
+    run "${PRAETORIAN}" --migrate foo=foo,bar
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"few days"* ]] || false
+    [[ "${output}" != *"any version"* ]] || false
+    run grep -q '/bar/$' "${CURL_URLS}"
+    [ "${status}" -eq 1 ]
+}
+
 # --- Dry-run and programs outside Homebrew ------------------------------------------
 
 @test "--migrate --dry-run: plan per port, nothing installed, no sudo" {
@@ -620,6 +680,9 @@ with_brew_gh() {
     [[ "${output}" != *"[brew service running]"* ]] || false
     [[ "${output}" != *"[referenced in ~/.zshrc…]"* ]] || false
     run grep -wE 'install|uninstall|selfupdate|select|setrequested' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+    # Only --migrate asks for a port's directory, when it blocks.
+    run grep -q '/$' "${CURL_URLS}"
     [ "${status}" -eq 1 ]
 }
 
