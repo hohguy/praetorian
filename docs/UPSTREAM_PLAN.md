@@ -49,6 +49,28 @@ held branch is rebased on the latest `main` right before it's posted.
 | TM | Tests-only PR: TA's minor gaps (empty homepage guard, the notes flag for #19/#35, #52's `--migrate` consent text, #54's fallback value) and E's unreachable dry-run guard in `macos_version_record` | PR, no CHANGELOG line | planned; mutate each guard first |
 | K | The binary check (`migrate_check_binary`) covers only the ports named, not their dependencies: a dependency with no archive for this Mac is compiled during `--migrate`, without `--allow-build`, and a dry run can't show it. (The other half, "a failed binary-only install leaves its dependencies", needs `-b`, which `main` doesn't use: part of B2.) Not in the README's known limitations | Issue (or a known-limitations line) | re-checked on `main` b091947 2026-11-22 by reading; no real case found yet |
 
+### Harm review (2026-11-22)
+
+One read-only review of `main` a4a7e12 against a single bar: can using
+praetorian as documented harm the Mac it runs on (breaks something,
+removes something, tells the user something false they act on)? Not a
+hunt for every defect. Each row is a hypothesis until it is re-traced
+and, where possible, shown on real brew; only H1 has been. Priority and
+form (issue, summary issue, README line, nothing) to decide. Not the
+same as item H under Suggestions.
+
+| Item | Harm | Status |
+|---|---|---|
+| H1 | `--migrate` runs `brew uninstall --formula <f>`, and `brew uninstall` autoremoves by default (`HOMEBREW_NO_AUTOREMOVE` turns it off): the formula's dependencies go in the same command, without the outside-Homebrew check (pipx, npm) that `--prune` runs on each candidate (decision 26, history row 29). Migrating a formula whose Python or node is only a dependency (pipx is the clear case) removes that Python and breaks the pipx environments, while the run says "No program outside Homebrew uses pipx" and "migrated"; its last line says the dependencies go "at the next brew autoremove", but they are already gone. The maintenance session's `brew autoremove` has the same gap for a dependency an upgrade leaves behind | confirmed 2026-11-22 on real brew (Homebrew 7.0.15, throwaway local tap: `brew uninstall --formula` removed the dependency in the same command, a script outside Homebrew that used it broke; nothing else touched); code read on `main` a4a7e12. This Mac: not exposed (no pipx, no npm global packages) |
+| H2a | `--migrate` passes a formula with no commands (a library: readline, gmp, xz): nothing to compare, so the command check passes; the uninstall breaks what was built against it (a pyenv Python). `--migrate-all` takes its candidates from `brew leaves` | hypothesis (read on a4a7e12) |
+| H2b | A command named with a version is "harmless" whatever the port's version: lua 5.5.1 → MacPorts lua 5.3.6 (same homepage) passes, a silent downgrade | hypothesis (read on a4a7e12; versions and homepages real on this Mac) |
+| H3 | Cask reinstall (`reinstall_cask`): a stop during the backup copy or delete leaves a partial copy; a successful reinstall drops data kept in the Caskroom; unattended, a failed reinstall leaves the app removed; the `.pkg` hint suggests the forced reinstall without a copy | hypothesis (needs a half-installed cask; read on a4a7e12) |
+| H4 | The shell-file check matches the literal `<prefix>/opt/<f>` only: `$(brew --prefix <f>)` and `$HOMEBREW_PREFIX/opt/<f>` lines are missed by `--migrate` and `--prune` | hypothesis (read on a4a7e12) |
+| H5 | "No program outside Homebrew uses <f>" while only pipx and npm are looked at (the README states that scope): project venvs, uv tools, rbenv rubies aren't | hypothesis; wording, may fold into H1 |
+| H6 | Printed hints: the undo line names a port installed before the migration; `pipx reinstall-all` touches every environment, not only the ones found | hypothesis (read on a4a7e12) |
+| H7 | `--prune` doesn't run the settings search that `--migrate` and the report use | hypothesis (read on a4a7e12) |
+| H8 | `sudo port uninstall inactive` also removes ports deactivated on purpose (the comment and README say "old versions") | hypothesis (MacPorts behaviour not tested) |
+
 ### Waiting
 
 | Item | Change | Kind | Status |
