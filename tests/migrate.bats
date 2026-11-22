@@ -657,6 +657,158 @@ with_brew_gh() {
     [ ! -s "${SUDO_CALLS}" ]
 }
 
+# all_ready <formula>…: brew leaves, ports, homepages and files for
+# formulae --migrate-all takes (same name, same homepage).
+all_ready() {
+    local f leaves="" hp="" info="" files="" pfiles=""
+    for f in "$@"; do
+        leaves+="${leaves:+$'\n'}${f}"
+        hp+=" ${f}=https://${f}.org"
+        info+=" ${f}=1.0_0,https://${f}.org,MIT"
+        files+="${files:+$'\n'}/usr/local/Cellar/${f}/1.0/bin/${f}"
+        pfiles+=" ${f}=bin/${f}"
+    done
+    export BREW_LEAVES="${leaves}" BREW_HOMEPAGES="${hp# }" PORT_INFO="${info# }"
+    export BREW_LIST_FILES="${files}" PORT_AVAILABLE="$*" PORT_FILES="${pfiles# }"
+}
+
+@test "--migrate-all --limit: a blocked formula doesn't count; the rest is skipped, never tried" {
+    all_ready aaa bbb ccc ddd
+    # bbb: no binary for this Mac → blocked.
+    export CURL_PACKAGES="aaa-1.0_0.darwin_24.x86_64.tbz2 ccc-1.0_0.darwin_24.x86_64.tbz2 ddd-1.0_0.darwin_24.x86_64.tbz2"
+    run "${PRAETORIAN}" --migrate-all --limit 2
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"aaa: migrated"* ]] || false
+    [[ "${output}" == *"bbb: blocked: no precompiled MacPorts binary of bbb"* ]] || false
+    [[ "${output}" == *"ccc: migrated"* ]] || false
+    [[ "${output}" == *"ddd: skipped: --limit reached"* ]] || false
+    [[ "${output}" == *"--limit 2 reached"* ]] || false
+    [[ "${output}" == *"2 migrated, 1 blocked, 1 skipped."* ]] || false
+    # Read while the list was built, never tried: no check, install or uninstall.
+    grep -qx -- '-N install aaa' "${PORT_CALLS}"
+    run grep -qx -- '-N install ddd' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+    run grep -qx 'uninstall --formula ddd' "${BREW_CALLS}"
+    [ "${status}" -eq 1 ]
+    run grep -w ddd "${CURL_URLS}"
+    [ "${status}" -eq 1 ]
+}
+
+@test "--migrate-all --limit: counted in the order of migration (a formula waiting on a dependent goes later), no last pass; --migrate ones not counted" {
+    all_ready libfoo app wget zed
+    export BREW_LEAVES=$'libfoo\napp\nwget' BREW_USES_MAP="libfoo:app"
+    # The dry run prints libfoo first, but it waits for app.
+    run "${PRAETORIAN}" --dry-run --migrate-all --limit 1
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"app: checks passed (dry-run, nothing changed)"* ]] || false
+    [[ "${output}" == *"libfoo: skipped: --limit reached"* ]] || false
+    [[ "${output}" == *"wget: skipped: --limit reached"* ]] || false
+    [[ "${output}" == *"1 ready, 0 blocked, 2 skipped (dry-run: nothing was changed)."* ]] || false
+
+    # Real run: app and wget migrated; libfoo, waiting, gets no last try.
+    # zed, given with --migrate, goes first and isn't counted.
+    run "${PRAETORIAN}" --migrate zed --migrate-all --limit 2
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"zed: migrated"* ]] || false
+    [[ "${output}" == *"app: migrated"* ]] || false
+    [[ "${output}" == *"wget: migrated"* ]] || false
+    [[ "${output}" == *"libfoo: skipped: --limit reached"* ]] || false
+    [[ "${output}" == *"3 migrated, 0 blocked, 1 skipped."* ]] || false
+    grep -qx -- '-N install app' "${PORT_CALLS}"
+    run grep -qx -- '-N install libfoo' "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+
+    # Two still waiting at the end (keep, outside the list, uses both):
+    # without --limit each gets one last try; with the limit reached, none.
+    # New names: the stub remembers what the run above uninstalled.
+    all_ready liba libb tool
+    export BREW_USES_MAP="liba:keep libb:keep"
+    run "${PRAETORIAN}" --dry-run --migrate-all
+    [[ "${output}" == *"liba: blocked"* ]] || false
+    run "${PRAETORIAN}" --dry-run --migrate-all --limit 1
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"tool: checks passed"* ]] || false
+    [[ "${output}" == *"liba: skipped: --limit reached"* ]] || false
+    [[ "${output}" == *"libb: skipped: --limit reached"* ]] || false
+    [[ "${output}" == *"--limit 1 reached: the rest of --migrate-all's list is left for next time."* ]] || false
+
+    # Exactly N in the list: nothing left, no "left for next time".
+    all_ready solo
+    run "${PRAETORIAN}" --dry-run --migrate-all --limit 1
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"solo: checks passed"* ]] || false
+    [[ "${output}" != *"reached"* ]] || false
+}
+
+@test "--migrate-all --exclude: left out and listed; not in the list → info line; all left out → summary; given with --migrate → migrated; not installed → nothing done" {
+    all_ready aaa bbb ccc
+    export BREW_NOT_INSTALLED="bbbb"
+    run "${PRAETORIAN}" --migrate-all --exclude bbb,jq
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Left out (--exclude): bbb"* ]] || false
+    [[ "${output}" == *"bbb: skipped: excluded"* ]] || false
+    [[ "${output}" == *"--exclude jq: not in --migrate-all's list"* ]] || false
+    [[ "${output}" == *"2 migrated, 0 blocked, 1 skipped."* ]] || false
+    grep -qx 'uninstall --formula aaa' "${BREW_CALLS}"
+    run grep -qx 'uninstall --formula bbb' "${BREW_CALLS}"
+    [ "${status}" -eq 1 ]
+
+    # The whole list left out: the summary still says so.
+    # (New names from here: the stub remembers what was uninstalled.)
+    all_ready eee
+    run "${PRAETORIAN}" --migrate-all --exclude eee
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"eee: skipped: excluded"* ]] || false
+    [[ "${output}" == *"0 migrated, 0 blocked, 1 skipped."* ]] || false
+
+    # Also given with --migrate: left to it, not listed as excluded.
+    all_ready fff ggg
+    run "${PRAETORIAN}" --migrate fff --migrate-all --exclude fff
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"--exclude fff: also given with --migrate, migrated as asked."* ]] || false
+    [[ "${output}" == *"fff: migrated"* ]] || false
+    [[ "${output}" != *"fff: skipped"* ]] || false
+    [[ "${output}" == *"2 migrated, 0 blocked, 0 skipped."* ]] || false
+
+    # A name that isn't installed: nothing done, --migrate ones included.
+    all_ready hhh
+    : >"${PORT_CALLS}"
+    run "${PRAETORIAN}" --migrate hhh --migrate-all --exclude=bbbb
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"BLOCKED: --exclude names a formula that isn't installed: bbbb"* ]] || false
+    run grep -w install "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+    run grep -q '^uninstall' <(grep -w hhh "${BREW_CALLS}")
+    [ "${status}" -eq 1 ]
+}
+
+@test "unit: --exclude names a tap formula by its short name too" {
+    # shellcheck disable=SC2016  # expanded by the inner bash
+    run in_praetorian 'MIGRATE_EXCLUDE=(terraform); PLAN_READY=(hashicorp/tap/terraform wget); migrate_exclude_apply; echo "kept: ${PLAN_READY[*]}"; echo "${BATCH_SPECS[*]}: ${BATCH_OUTCOMES[*]}"'
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"kept: wget"* ]] || false
+    [[ "${output}" == *"hashicorp/tap/terraform: skipped: excluded"* ]] || false
+    [[ "${output}" != *"not in --migrate-all's list"* ]] || false
+}
+
+@test "--limit and --exclude: only with --migrate-all, checked values" {
+    local args
+    for args in "--migrate wget --limit 2" "--exclude wget" "--dry-run --limit=1" \
+        "--migrate-all --limit 0" "--migrate-all --limit x" "--migrate-all --limit" \
+        "--migrate-all --exclude a=b" "--migrate-all --exclude a,,b" "--migrate-all --exclude a," \
+        "--migrate-all --exclude ../x" "--migrate-all --exclude"; do
+        echo "args: ${args}" # shown when an assertion below fails
+        # shellcheck disable=SC2086  # one word per option
+        run "${PRAETORIAN}" ${args}
+        [ "${status}" -eq 1 ]
+        [[ "${output}" == *"--limit"* || "${output}" == *"--exclude"* ]] || false
+    done
+    run "${PRAETORIAN}" --migrate-all --exclude $'wget\njq'
+    [ "${status}" -eq 1 ]
+    run grep -w install "${PORT_CALLS}"
+    [ "${status}" -eq 1 ]
+}
+
 # --- --migration-report ---------------------------------------------------------------
 
 @test "--migration-report: traps, different homepages and missing binaries shown" {

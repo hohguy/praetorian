@@ -1549,8 +1549,96 @@ migrate_one() {
     BATCH_OUTCOMES+=("${outcome}")
 }
 
+# --exclude: a name that isn't an installed formula blocks the run (a
+# typo would leave out nothing, and the formula meant to stay would be
+# migrated). Before anything is migrated, --migrate ones included.
+migrate_exclude_check() {
+    local name
+    local -a missing=()
+    for name in "${MIGRATE_EXCLUDE[@]}"; do
+        brew list --formula --versions "${name}" </dev/null >/dev/null 2>&1 || missing+=("${name}")
+    done
+    ((${#missing[@]} > 0)) || return 0
+    block "--exclude names a formula that isn't installed: ${missing[*]}" \
+        "A misspelt name would leave nothing out, and the formula meant to stay in Homebrew would be migrated." \
+        "Nothing was done: no formula migrated." \
+        "Check the name (brew list --formula), then run again."
+    return 1
+}
+
+# excluded <formula>: named by --exclude, as is or without its tap.
+excluded() {
+    local name
+    for name in "${MIGRATE_EXCLUDE[@]}"; do
+        if [[ "$1" == "${name}" || "${1##*/}" == "${name}" ]]; then return 0; fi
+    done
+    return 1
+}
+
+# --exclude: the formulae named leave --migrate-all's list ("skipped:
+# excluded" in the summary); one that isn't in it gets an info line. One
+# also given with --migrate is left to it, as asked.
+migrate_exclude_apply() {
+    local f name hit spec given
+    local -a kept=() out=()
+    for name in "${MIGRATE_EXCLUDE[@]}"; do
+        hit=false
+        for f in "${PLAN_READY[@]+"${PLAN_READY[@]}"}"; do
+            if [[ "${f}" == "${name}" || "${f##*/}" == "${name}" ]]; then hit=true; fi
+        done
+        [[ "${hit}" == true ]] || info "--exclude ${name}: not in --migrate-all's list, nothing to leave out."
+    done
+    for f in "${PLAN_READY[@]+"${PLAN_READY[@]}"}"; do
+        if ! excluded "${f}"; then
+            kept+=("${f}")
+            continue
+        fi
+        given=false
+        # shellcheck disable=SC2153  # MIGRATE_SPECS is set by parse_args (praetorian)
+        for spec in "${MIGRATE_SPECS[@]+"${MIGRATE_SPECS[@]}"}"; do
+            if [[ "${spec%%=*}" == "${f}" ]]; then given=true; fi
+        done
+        if [[ "${given}" == true ]]; then
+            info "--exclude ${f}: also given with --migrate, migrated as asked."
+            continue
+        fi
+        out+=("${f}")
+        BATCH_SPECS+=("${f}")
+        BATCH_OUTCOMES+=("skipped: excluded")
+    done
+    ((${#out[@]} == 0)) || info "Left out (--exclude): ${out[*]}"
+    PLAN_READY=("${kept[@]+"${kept[@]}"}")
+}
+
+# batch_try <spec>: migrate_one, with --limit. Only formulae of
+# --migrate-all's list count (from_all, set by migrate_batch), when
+# migrated or, on a dry run, when their checks passed; blocked ones and
+# --migrate ones don't. Once N is reached, the rest of that list is only
+# listed as skipped (limit_said: the info line once).
+batch_try() {
+    local outcome
+    if ((MIGRATE_LIMIT == 0)) || ! grep -qxF "${1%%=*}" <<<"${from_all}"; then
+        migrate_one "$1"
+        return 0
+    fi
+    if ((limit_count >= MIGRATE_LIMIT)); then
+        [[ "${limit_said}" == true ]] ||
+            info "--limit ${MIGRATE_LIMIT} reached: the rest of --migrate-all's list is left for next time."
+        limit_said=true
+        BATCH_SPECS+=("$1")
+        BATCH_OUTCOMES+=("skipped: --limit reached")
+        return 0
+    fi
+    migrate_one "$1"
+    outcome=${BATCH_OUTCOMES[${#BATCH_OUTCOMES[@]} - 1]}
+    if [[ "${outcome}" == migrated || "${outcome}" == checked ]]; then
+        limit_count=$((limit_count + 1))
+    fi
+    return 0
+}
+
 migrate_batch() {
-    local spec f seen=""
+    local spec f seen="" from_all="" i limit_count=0 limit_said=false
     local -a todo=() pending=() ready=() waiting=()
     if [[ "${MIGRATE_ALL}" == true ]]; then
         section "Formulae ready to migrate (--migrate-all)"
@@ -1559,6 +1647,7 @@ migrate_batch() {
             return 0
         fi
         local blocks_before=${#BLOCKERS[@]}
+        if ((${#MIGRATE_EXCLUDE[@]} > 0)); then migrate_exclude_check || return 0; fi
         migration_classify
         ((${#BLOCKERS[@]} == blocks_before)) || return 0
         if ((${#PLAN_READY[@]} == 0)); then
@@ -1567,15 +1656,20 @@ migrate_batch() {
             info "${#PLAN_READY[@]} formula(e) with the same name and the same homepage in MacPorts, nothing blocking: ${PLAN_READY[*]}"
         fi
         say "    ${C_DIM}Left out: the known traps and other names, different homepages, [ ] notes — see praetorian --migration-report.${C_RESET}"
+        ((${#MIGRATE_EXCLUDE[@]} == 0)) || migrate_exclude_apply
     fi
     # shellcheck disable=SC2153  # MIGRATE_SPECS is set by parse_args (praetorian)
     todo=("${MIGRATE_SPECS[@]+"${MIGRATE_SPECS[@]}"}" "${PLAN_READY[@]+"${PLAN_READY[@]}"}")
-    ((${#todo[@]} > 0)) || return 0
+    # Nothing left once --exclude took them all: only the summary.
+    ((${#todo[@]} > 0 || ${#BATCH_SPECS[@]} > 0)) || return 0
 
     # The same formula twice: only the first one. A name that isn't one
     # (the --migrate ones are checked by parse_args, the --migrate-all
     # ones come from brew leaves) never reaches brew, port or sudo.
-    for spec in "${todo[@]}"; do
+    # from_all: the formulae of --migrate-all's list (after the --migrate
+    # ones), the only ones --limit counts.
+    for ((i = 0; i < ${#todo[@]}; i++)); do
+        spec=${todo[i]}
         f=${spec%%=*}
         if ! valid_migrate_spec "${spec}"; then
             BATCH_SPECS+=("${spec}")
@@ -1588,6 +1682,7 @@ migrate_batch() {
             continue
         fi
         seen+="${seen:+$'\n'}${f}"
+        ((i < ${#MIGRATE_SPECS[@]})) || from_all+="${from_all:+$'\n'}${f}"
         pending+=("${spec}")
     done
 
@@ -1604,14 +1699,14 @@ migrate_batch() {
         done
         ((${#ready[@]} > 0)) || break
         done_before=${MIGRATE_DONE}
-        for spec in "${ready[@]}"; do migrate_one "${spec}"; done
+        for spec in "${ready[@]}"; do batch_try "${spec}"; done
         pending=("${waiting[@]+"${waiting[@]}"}")
         # Nothing migrated: the dependents of the waiting ones are still
         # there, another pass would change nothing.
         [[ "${MIGRATE_DONE}" != "${done_before}" ]] || break
     done
     # Still waiting: one try each, for the block that explains why.
-    for spec in "${pending[@]+"${pending[@]}"}"; do migrate_one "${spec}"; done
+    for spec in "${pending[@]+"${pending[@]}"}"; do batch_try "${spec}"; done
 
     ((${#BATCH_SPECS[@]} > 1)) || [[ "${MIGRATE_ALL}" == true ]] || return 0
     migrate_batch_summary
