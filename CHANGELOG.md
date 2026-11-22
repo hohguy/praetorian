@@ -45,6 +45,17 @@ have none.
   advance. One HEAD request per site, over https, following up to 5
   redirects, nothing downloaded. A homepage that forwards to the other
   is the same project, never taken by `--migrate-all`.
+- `--limit N` and `--exclude a,b`, with `--migrate-all` only, to take
+  part of its list. `--limit` stops after N formulae migrated, counted in
+  the order they are actually migrated; blocked ones don't count, nothing
+  more of the list runs once N is reached (not even the last try of the
+  ones still waiting), and the rest is listed as `skipped: --limit
+  reached`. In a dry run, "checks passed" counts. `--exclude` leaves the
+  formulae named out of the list (`skipped: excluded`); a name that isn't
+  an installed formula blocks the run before anything is migrated, one
+  not in the list gets an info line. Formulae given with `--migrate` in
+  the same run are left as they are. Both are per run: nothing is
+  remembered.
 
 ### Fixed
 
