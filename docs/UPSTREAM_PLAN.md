@@ -139,9 +139,9 @@ merged, some may move up.
 
 | Item | Change | Kind | Status |
 |---|---|---|---|
-| G | Build dependencies of formulae still in Homebrew aren't taken into account (`--prune` offers the compilers Homebrew needs to build what stays) | Issue | planned |
-| H | No per-port build allowance for maintenance upgrades | Issue | planned |
-| K | A dry run can't predict a dependency with no binary; a failed binary-only install leaves the dependencies it already installed | Issue | planned |
+| G | `--prune` offers build dependencies of formulae still in Homebrew: its candidates come from `brew leaves`, which counts runtime dependencies only (`cmd/leaves.rb`), while `brew autoremove` deliberately keeps the build dependencies of formulae built from source, "as a bottle may not be usable by the next upgrade and they take a while to install again" (`utils/autoremove.rb`). On this Mac (2026-11-22, read-only): all 20 first-round candidates are build dependencies of installed formulae (`cmake` for ~60, `meson` ~20, `rust` 7, plus `go`, `node`), 94 of 204 formulae built from source, `brew autoremove --dry-run` removes none. The README's reason for `--prune` (leftovers of migrated formulae) still holds: the check has to tell the two apart | Issue | confirmed on `main` b091947 2026-11-22; next issue once Vik has caught up |
+| H | No per-port build allowance for maintenance upgrades: on `main` the MacPorts upgrade is `port -N -p upgrade <list>` with no binary check, so a port without an archive is compiled (overnight when unattended). An allowance only means something once upgrades are binary-only (B2) | Part of B2 | re-checked 2026-11-22: folded into B2, not a separate issue |
+| K | The binary check (`migrate_check_binary`) covers only the ports named, not their dependencies: a dependency with no archive for this Mac is compiled during `--migrate`, without `--allow-build`, and a dry run can't show it. (The other half, "a failed binary-only install leaves its dependencies", needs `-b`, which `main` doesn't use: part of B2.) Not in the README's known limitations | Issue (or a known-limitations line) | re-checked on `main` b091947 2026-11-22 by reading; no real case found yet |
 
 ### Done
 
