@@ -31,7 +31,7 @@
 #           ./praetorian --status | --doctor | --sbom
 #           ./praetorian [--dry-run] --prune
 #           ./praetorian [--dry-run] [--allow-build] [--allow-project-site-requests] --migrate <formula>[=<port>[,<port>…]] [--migrate …]
-#           ./praetorian [--dry-run] [--allow-build] --migrate-all
+#           ./praetorian [--dry-run] [--allow-build] --migrate-all [--limit N] [--exclude a,b]
 #           (--migrate=<spec> works too; -h = --help)
 # Author  : victor-sys-admin
 # License : GPL-3.0-or-later (see LICENSE)
@@ -119,7 +119,10 @@ MODE=maintain               # maintain | report | migrate | status | doctor | pr
 MIGRATE_SPEC=""             # spec being migrated: "formula" or "formula=port[,port…]"
 declare -a MIGRATE_SPECS=() # every --migrate given, in order
 MIGRATE_ALL=false           # --migrate-all
+MIGRATE_LIMIT=0             # --limit N: at most N of --migrate-all's list migrated
 ALLOW_BUILD=false           # --allow-build: migrate even without a MacPorts binary
+# --exclude a,b: left out of --migrate-all's list
+declare -a MIGRATE_EXCLUDE=()
 # --allow-project-site-requests: ask the project sites of differing
 # homepages without a question.
 ALLOW_PROJECT_SITE_REQUESTS=false
@@ -382,6 +385,11 @@ Homebrew → MacPorts migration:
   --migrate-all Migrates every formula the report finds under the same
                 name in MacPorts, leaves first; a blocked one is skipped
                 and listed in the summary.
+  --limit N     With --migrate-all: stops after N formulae of its list
+                migrated (in the order they are migrated; blocked ones
+                and --migrate ones don't count, --migrate ones still run).
+  --exclude a,b With --migrate-all: leaves these formulae out of its list
+                (a name that isn't an installed formula blocks the run).
   --allow-build Migrates even when MacPorts has no precompiled binary of
                 the port for this Mac (it would compile from source).
   --allow-project-site-requests
@@ -455,6 +463,42 @@ parse_args() {
                 set_mode migrate "$1"
                 MIGRATE_ALL=true
                 ;;
+            --limit | --limit=*)
+                local n
+                if [[ "$1" == --limit=* ]]; then
+                    n=${1#--limit=}
+                else
+                    n=${2:-}
+                    [[ $# -gt 1 ]] && shift
+                fi
+                if [[ ! "${n}" =~ ^[1-9][0-9]{0,8}$ ]]; then
+                    err "--limit expects a whole number from 1 (--limit 5)."
+                    finish 1
+                fi
+                MIGRATE_LIMIT=${n}
+                ;;
+            --exclude | --exclude=*)
+                local list name
+                local -a names=()
+                if [[ "$1" == --exclude=* ]]; then
+                    list=${1#--exclude=}
+                else
+                    list=${2:-}
+                    [[ $# -gt 1 ]] && shift
+                fi
+                IFS=, read -r -a names <<<"${list}"
+                # Formula names only, checked like --migrate's.
+                if [[ -z "${list}" || "${list}" == *, || "${list}" == ,* || "${list}" == *,,* || "${list}" == *$'\n'* ]]; then
+                    names=("")
+                fi
+                for name in "${names[@]}"; do
+                    if ! valid_migrate_spec "${name}" || [[ "${name}" == *=* ]]; then
+                        err "--exclude expects formula names separated by commas (--exclude wget,jq)."
+                        finish 1
+                    fi
+                done
+                MIGRATE_EXCLUDE+=("${names[@]}")
+                ;;
             --migrate | --migrate=*)
                 local spec
                 if [[ "$1" == --migrate=* ]]; then
@@ -484,6 +528,10 @@ parse_args() {
         esac
         shift
     done
+    if [[ "${MIGRATE_ALL}" != true ]] && { ((MIGRATE_LIMIT > 0)) || ((${#MIGRATE_EXCLUDE[@]} > 0)); }; then
+        err "--limit and --exclude only go with --migrate-all: they narrow its list."
+        finish 1
+    fi
 }
 
 # ----------------------------------------------------------------------------
