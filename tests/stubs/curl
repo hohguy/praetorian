@@ -15,6 +15,8 @@
 # 000); a 404 exits 0 without -f, and with -f exits $CURL_404_RC
 # (default 22; macOS's own curl 8.7.1 over HTTP/2 exits 56 instead).
 # $CURL_HTTP_ERROR (e.g. 503): every archive answers that code instead.
+# A port's directory (…/<port>/) answers 200, or the code set for the
+# port in $CURL_PORT_DIRS ("port=code …"; 000: timeout).
 #
 # Homepages (-w '%{http_code} %{url_effective}', any other URL): 200 at
 # the URL itself, or where $CURL_REDIRECTS ("from=to …") sends it; the
@@ -41,6 +43,13 @@ answer() { # answer <http code> <exit code when -f>
 }
 if [[ "${url}" == https://packages.macports.org/* ]]; then
     [[ -z "${CURL_URLS:-}" ]] || printf '%s\n' "${url}" >>"${CURL_URLS}"
+    if [[ "${url}" == */ ]]; then
+        port=${url%/}
+        port=${port##*/}
+        code=200
+        for entry in ${CURL_PORT_DIRS:-}; do [[ "${entry%%=*}" != "${port}" ]] || code=${entry#*=}; done
+        answer "${code}" 22
+    fi
     [[ -z "${CURL_HTTP_ERROR:-}" ]] || answer "${CURL_HTTP_ERROR}" 22
     [[ -n "${CURL_PACKAGES+set}" ]] || answer 200 0
     [[ "${CURL_PACKAGES}" != offline ]] || answer 000 28
