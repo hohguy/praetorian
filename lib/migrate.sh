@@ -500,6 +500,23 @@ port_binary_status() {
     echo no
 }
 
+# port_dir_code <port>: the HTTP code of the port's directory on
+# packages.macports.org (one HEAD request, as for an archive), 000 for no
+# answer, empty when not asked. 404: no archive of any version of the port
+# so far (never built there, or added in the last few days).
+port_dir_code() {
+    local p=$1 url code rc=0
+    # Only these characters ever reach the URL (as in port_binary_status).
+    if [[ ! "${p}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || ! command -v curl >/dev/null 2>&1; then
+        return 0
+    fi
+    url="${PORT_PACKAGES_URL}/${p}/"
+    code=$(curl -sSI --proto =https --max-time "${BINARY_CHECK_TIMEOUT}" \
+        -o /dev/null -w '%{http_code}' "${url}" 2>>"${LOG_FILE}") || rc=$?
+    log_detail "Port directory: ${url} (HTTP ${code:-none}, curl rc ${rc})"
+    printf '%s' "${code:-000}"
+}
+
 # port_binary_sibling <port>: for a versioned port (nodejs26, python314),
 # the closest older version with a binary for this Mac, if any. At most 4
 # versions tried, one request each.
@@ -1196,11 +1213,12 @@ migrate_check_project() {
 
 # 9. A precompiled binary for this Mac, for every port to install
 # (already active ones need nothing). None: blocked unless --allow-build,
-# with an older version of the same port that has one, when there is.
+# with an older version of the same port that has one, when there is, and
+# a word on the ports with no archive of any version (port_dir_code).
 # Network trouble: no verdict, never a block.
 migrate_check_binary() {
-    local q status="" sibling alt r
-    local -a nobin=() hints=()
+    local q status="" sibling alt r code why
+    local -a nobin=() hints=() never=() wait=()
     for q in "${ports[@]}"; do
         port_is_active "${q}" && continue
         # No answer once: the other ports would only wait for their timeout.
@@ -1231,12 +1249,29 @@ migrate_check_binary() {
         done
         hints+=("${sibling} has a binary: praetorian --migrate ${f}=${alt}")
     done
+    # A port with no archive of any version (its directory answers 404) is
+    # unlikely to get one in a few days, unless it is new. Only an exact
+    # 404 counts: a redirect, another status or no answer keeps the line.
+    for q in "${nobin[@]}"; do
+        code=$(port_dir_code "${q}")
+        [[ "${code}" != 404 ]] || never+=("${q}")
+        # No answer once: the other ports would only wait for their timeout.
+        [[ "${code}" != 000 ]] || break
+    done
+    why="packages.macports.org has no archive of ${nobin[*]} for $(binary_platform): MacPorts would compile from source, which may take hours or fail."
+    if ((${#never[@]} == 1)); then
+        why+=" No archive of any version of ${never[0]} so far; unless the port is new, a binary is unlikely to come."
+    elif ((${#never[@]} > 1)); then
+        why+=" No archive of any version of ${never[*]} so far; unless they are new, binaries are unlikely to come."
+    fi
+    ((${#never[@]} == ${#nobin[@]})) ||
+        wait=("Or keep ${f} in Homebrew for now: binaries often appear a few days after a new version.")
     block "no precompiled MacPorts binary of ${nobin[*]} for this Mac" \
-        "packages.macports.org has no archive of ${nobin[*]} for $(binary_platform): MacPorts would compile from source, which may take hours or fail." \
+        "${why}" \
         "Nothing was done: no MacPorts install, no uninstall. ${f} stays in Homebrew." \
         "${hints[@]+"${hints[@]}"}" \
         "Compile anyway: praetorian --allow-build --migrate ${MIGRATE_SPEC}" \
-        "Or keep ${f} in Homebrew for now: binaries often appear a few days after a new version."
+        "${wait[@]+"${wait[@]}"}"
 }
 
 migrate_dry_run_plan() {

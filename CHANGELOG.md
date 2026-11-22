@@ -122,6 +122,16 @@ have none.
   "Attempting to fetch … from https://…" in an 80-column window) wrapped,
   and each redraw left its first screen line behind. It's now cut to the
   terminal's width.
+- `--migrate` blocked for a port with no precompiled binary always said
+  "binaries often appear a few days after a new version", also for ports
+  MacPorts has never published an archive of, for any version or Mac.
+  When it blocks, one more HEAD request per port without a binary, on
+  the port's directory on `packages.macports.org`, tells them apart: a
+  404 means no archive of any version so far, and the block now says so
+  ("unless the port is new, a binary is unlikely to come"). A redirect,
+  another status or no answer keeps the message as it was; with several
+  ports, the advice to wait goes only if all of them answer 404. The
+  report doesn't make these requests.
 
 ### Security
 
